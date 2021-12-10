@@ -80,7 +80,14 @@ target_include_directories(
 		"${SOURCE_DIR}"
 )
 
-add_subdirectory("${ROOT_DIR}/external/CommonLibSSE" CommonLibSSE)
+if (DEFINED CommonLibPath AND NOT ${CommonLibPath} STREQUAL "" AND IS_DIRECTORY ${CommonLibPath})
+	add_subdirectory(${CommonLibPath} ${CommonLibName})
+else ()
+	message(
+		FATAL_ERROR
+		"Variable ${CommonLibName}Path is not set."
+	)
+endif()
 
 find_package(Boost
 	MODULE
@@ -97,7 +104,7 @@ target_link_libraries(
 	"${PROJECT_NAME}"
 	PRIVATE
 		Boost::stacktrace_windbg
-		CommonLibSSE::CommonLibSSE
+		${CommonLibName}::${CommonLibName}
 		Dbghelp.lib
 		fmt::fmt
 		frozen::frozen
@@ -112,11 +119,17 @@ target_precompile_headers(
 )
 
 if("${COPY_OUTPUT}")
+	if (DEFINED SkyrimPath)
 	add_custom_command(
-		TARGET "${PROJECT_NAME}"
+		TARGET ${PROJECT_NAME}
 		POST_BUILD
-		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:${PROJECT_NAME}>" "${Skyrim64Path}/Data/SKSE/Plugins/"
-		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_PDB_FILE:${PROJECT_NAME}>" "${Skyrim64Path}/Data/SKSE/Plugins/"
-		VERBATIM
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}> ${SkyrimPath}/Data/SKSE/Plugins/
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_PDB_FILE:${PROJECT_NAME}> ${SkyrimPath}/Data/SKSE/Plugins/
 	)
+	else ()
+	message(
+		WARNING
+		"Variable ${SkyrimPath} is not defined. Skipping post-build copy command."
+	)
+	endif ()
 endif()
