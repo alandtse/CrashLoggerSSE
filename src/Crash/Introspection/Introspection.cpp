@@ -130,20 +130,20 @@ namespace Crash::Introspection
 				const auto demangle = [](const char* a_in, char* a_out, std::uint32_t a_size) {
 					static std::mutex m;
 					std::lock_guard l{ m };
-					return WinAPI::UnDecorateSymbolName(
+					return ::WinAPI::UnDecorateSymbolName(
 						a_in,
 						a_out,
 						a_size,
-						(WinAPI::UNDNAME_NO_MS_KEYWORDS) |
-							(WinAPI::UNDNAME_NO_FUNCTION_RETURNS) |
-							(WinAPI::UNDNAME_NO_ALLOCATION_MODEL) |
-							(WinAPI::UNDNAME_NO_ALLOCATION_LANGUAGE) |
-							(WinAPI::UNDNAME_NO_THISTYPE) |
-							(WinAPI::UNDNAME_NO_ACCESS_SPECIFIERS) |
-							(WinAPI::UNDNAME_NO_THROW_SIGNATURES) |
-							(WinAPI::UNDNAME_NO_RETURN_UDT_MODEL) |
-							(WinAPI::UNDNAME_NAME_ONLY) |
-							(WinAPI::UNDNAME_NO_ARGUMENTS) |
+						(::WinAPI::UNDNAME_NO_MS_KEYWORDS) |
+							(::WinAPI::UNDNAME_NO_FUNCTION_RETURNS) |
+							(::WinAPI::UNDNAME_NO_ALLOCATION_MODEL) |
+							(::WinAPI::UNDNAME_NO_ALLOCATION_LANGUAGE) |
+							(::WinAPI::UNDNAME_NO_THISTYPE) |
+							(::WinAPI::UNDNAME_NO_ACCESS_SPECIFIERS) |
+							(::WinAPI::UNDNAME_NO_THROW_SIGNATURES) |
+							(::WinAPI::UNDNAME_NO_RETURN_UDT_MODEL) |
+							(::WinAPI::UNDNAME_NAME_ONLY) |
+							(::WinAPI::UNDNAME_NO_ARGUMENTS) |
 							static_cast<std::uint32_t>(0x8000));  // Disable enum/class/struct/union prefix
 				};
 

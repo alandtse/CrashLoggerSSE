@@ -525,7 +525,7 @@ namespace Crash
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
 #ifndef NDEBUG
-			while (!WinAPI::IsDebuggerPresent()) {}
+			while (!::WinAPI::IsDebuggerPresent()) {}
 #endif
 
 			try {
@@ -570,8 +570,8 @@ namespace Crash
 				print([&]() { print_plugins(*log); });
 			} catch (...) {}
 
-			WinAPI::TerminateProcess(
-				WinAPI::GetCurrentProcess(),
+			::WinAPI::TerminateProcess(
+				::WinAPI::GetCurrentProcess(),
 				EXIT_FAILURE);
 		}
 
