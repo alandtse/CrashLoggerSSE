@@ -1,6 +1,6 @@
 # CrashLoggerSSE
 
-SKSE/SKSEVR plugin that prevents favorited items from being sold, crafted, disarmed, disenchanted, or dropped.
+SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.
 *	[AE Version](https://www.nexusmods.com/skyrimspecialedition/mods/59596)
 *	[VR Version](https://www.nexusmods.com/skyrimspecialedition/mods/59818)
 
