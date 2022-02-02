@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 set(NAME "CrashLogger")
 set(VERSION 1.0.0)
-set(VR_VERSION 1)
+set(VR_VERSION 2)
 option(COPY_OUTPUT "copy the output of build operations to the game directory" OFF)
 option(BUILD_SKYRIMVR "Build for Skyrim VR" OFF)
 
@@ -19,7 +19,8 @@ macro(find_commonlib_path)
 		# Check extern
 		find_path(CommonLibPath
 		include/REL/Relocation.h
-		PATHS extern/${CommonLibName})
+		PATHS extern/${CommonLibName}
+			external/${CommonLibName})
 		if (${CommonLibPath} STREQUAL "CommonLibPath-NOTFOUND")
 			#Check path
 			set_from_environment(${CommonLibName}Path)
@@ -32,13 +33,11 @@ if(BUILD_SKYRIMVR)
 	add_compile_definitions(SKYRIMVR)
 	add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 	set(CommonLibName "CommonLibVR")
-	set_from_environment(SkyrimVRPath)
 	set(SkyrimPath ${SkyrimVRPath})
 	set(SkyrimVersion "Skyrim VR")
 	set(VERSION ${VERSION}.${VR_VERSION})
 else()
 	set(CommonLibName "CommonLibSSE")
-	set_from_environment(Skyrim64Path)
 	set(SkyrimPath ${Skyrim64Path})
 	set(SkyrimVersion "Skyrim SSE")
 	set(VERSION ${VERSION}.0)

@@ -15,6 +15,7 @@ SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.
 * [CommonLibSSE](https://github.com/Ryan-rsm-McKenzie/CommonLibSSE)
 	* Add this as as an environment variable `CommonLibSSEPath` or use submodule in `/external`
 * [CommonLibVR](https://github.com/alandtse/CommonLibVR/tree/vr)
+	* You need to build from the vr branch
 	* Add this as as an environment variable `CommonLibVRPath`
 
 ## User Requirements
@@ -30,28 +31,24 @@ SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.
 
 ## Building
 ```
-git clone https://github.com/Ryan-rsm-McKenzie/CrashLoggerSSE.git
+git clone https://github.com/alandtse/CrashLoggerSSE.git
 cd CrashLoggerSSE
+# pull commonlib /extern to override the path settings
+git submodule init
+# to update submodules to checked in build
+git submodule update
 ```
-### CommonLibSSE/CommonLibVR
-```
-# pull CommonLibSSE and CommonLibVR
-# alternatively, do not pull and set environment variable `CommonLibSSEPath` or `CommonLibVRPath` if you need something different from external
 
-git submodule update --init --recursive
-
-```
 ### SSE
 ```
-cmake -B build -S . -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+cmake --preset vs2022-windows-vcpkg
+cmake --build build --config Release
 ```
-Open build/CrashLogger.sln in Visual Studio to build dll.
 ### VR
 ```
-cmake -B build2 -S . -DVCPKG_TARGET_TRIPLET=x64-windows-static-md -DBUILD_SKYRIMVR=On
+cmake --preset vs2022-windows-vcpkg-vr
+cmake --build buildvr --config Release
 ```
-Open build2/CrashLogger.sln in Visual Studio to build dll.
-
 ## License
 [MIT](LICENSE)
 
