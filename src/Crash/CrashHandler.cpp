@@ -353,11 +353,17 @@ namespace Crash
 
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			if (datahandler) {
+#ifndef SKYRIMVR // SKYRIM VR does not have light esps so only ->files is necessary.
 				const auto& [files, smallfiles] = datahandler->compiledFileCollection;
+#else
+				auto& files = datahandler->files;
+#endif
 
 				const auto fileFormat = [&]() {
 					return "\t[{:>02X}]{:"s +
+#ifndef SKYRIMVR
 					       (!smallfiles.empty() ? "5"s : "1"s) +
+#endif
 					       "}{}"s;
 				}();
 
@@ -369,12 +375,14 @@ namespace Crash
 						file->GetFilename());
 				}
 
+#ifndef SKYRIMVR
 				for (const auto file : smallfiles) {
 					a_log.critical(
 						"\t[FE:{:>03X}] {}"sv,
 						file->GetSmallFileCompileIndex(),
 						file->GetFilename());
 				}
+#endif
 			}
 		}
 
