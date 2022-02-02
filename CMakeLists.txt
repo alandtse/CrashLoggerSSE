@@ -5,17 +5,8 @@ set(VR_VERSION 1)
 option(COPY_OUTPUT "copy the output of build operations to the game directory" OFF)
 option(BUILD_SKYRIMVR "Build for Skyrim VR" OFF)
 
-project(
-	${NAME}
-	VERSION ${VERSION}
-	LANGUAGES CXX
-)
-
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if("${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}")
-	message(FATAL_ERROR "in-source builds are not allowed")
-endif()
 
 macro(set_from_environment VARIABLE)
 	if(NOT DEFINED ${VARIABLE} AND DEFINED ENV{${VARIABLE}})
@@ -44,18 +35,29 @@ if(BUILD_SKYRIMVR)
 	set_from_environment(SkyrimVRPath)
 	set(SkyrimPath ${SkyrimVRPath})
 	set(SkyrimVersion "Skyrim VR")
-	set(VERSION "${VERSION}.${VR_VERSION}")
+	set(VERSION ${VERSION}.${VR_VERSION})
 else()
 	set(CommonLibName "CommonLibSSE")
 	set_from_environment(Skyrim64Path)
 	set(SkyrimPath ${Skyrim64Path})
 	set(SkyrimVersion "Skyrim SSE")
+	set(VERSION ${VERSION}.0)
 endif()
 find_commonlib_path()
 message(
 	STATUS
-	"Building for ${SkyrimVersion} at ${SkyrimPath} with ${CommonLibName} at ${CommonLibPath}."
+	"Building ${NAME} ${VERSION} for ${SkyrimVersion} at ${SkyrimPath} with ${CommonLibName} at ${CommonLibPath}."
 )
+
+project(
+	${NAME}
+	VERSION ${VERSION}
+	LANGUAGES CXX
+)
+
+if("${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}")
+	message(FATAL_ERROR "in-source builds are not allowed")
+endif()
 
 add_subdirectory(src)
 include(cmake/archive_artifacts.cmake)

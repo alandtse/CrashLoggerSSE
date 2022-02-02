@@ -12,6 +12,7 @@ namespace Plugin
 		@PROJECT_VERSION_MAJOR@u,
 		@PROJECT_VERSION_MINOR@u,
 		@PROJECT_VERSION_PATCH@u,
+		@PROJECT_VERSION_TWEAK@u,
 		// clang-format on
 	};
 

@@ -551,8 +551,8 @@ namespace Crash
 				};
 
 				const auto runtimeVer = REL::Module::get().version();
-				log->critical("Skyrim SSE v{}.{}.{}"sv, runtimeVer[0], runtimeVer[1], runtimeVer[2]);
-				log->critical("CrashLoggerSSE v{}.{}.{}"sv, Plugin::VERSION[0], Plugin::VERSION[1], Plugin::VERSION[2]);
+				log->critical("Skyrim VR v{}.{}.{}"sv, runtimeVer[0], runtimeVer[1], runtimeVer[2]);
+				log->critical("CrashLoggerSSE v{}"sv, Plugin::VERSION.string().data());
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); });
