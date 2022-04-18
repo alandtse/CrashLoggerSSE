@@ -58,6 +58,63 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+
+	class NiAVObject
+	{
+	public:
+		using value_type = RE::NiAVObject;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				object->GetRTTI()->GetName();
+				const auto name = object ? object->name.c_str() : ""sv;
+				if (!name.empty())
+					a_results.emplace_back(
+						"Name"sv,
+						quoted(name));
+			} catch (...) {}
+
+			try {
+				const auto name = object->GetRTTI() ? object->GetRTTI()->GetName() : ""sv;
+				if (!name.empty())
+					a_results.emplace_back(
+						"RTTIName"sv,
+						quoted(name));
+			} catch (...) {}
+
+			try {
+				for (auto i = 0; i < object->GetExtraDataSize(); i++) {
+					const auto extraData = object->GetExtraDataAt(i);
+					if (!extraData->GetName().empty()) {
+						const auto name = extraData->GetName().c_str();
+						if (name && name[0])
+							a_results.emplace_back(
+								fmt::format(
+									"ExtraData[{}] Name"sv,
+									i),
+								quoted(name));
+					}
+
+				}
+			} catch (...) {}
+
+			try {
+				const auto userdata = object->GetUserData();
+				if (userdata)
+					a_results.emplace_back(
+						"Recursing UserData"sv,
+						"---------"sv);
+				TESForm::filter(a_results, userdata);
+			} catch (...) {}
+
+		}
+	};
+
 }
 
 namespace Crash::Introspection
@@ -216,6 +273,7 @@ namespace Crash::Introspection
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm::filter),
+				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
 			});
 
 			Polymorphic _poly;
