@@ -40,6 +40,22 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 
 			try {
+				const auto name = form->GetName();
+				if (name && name[0])
+					a_results.emplace_back(
+						"Name"sv,
+						quoted(name));
+			} catch (...) {}
+
+			try {
+				const auto editorID = form->GetFormEditorID();
+				if (editorID && editorID[0])
+					a_results.emplace_back(
+						"Editor ID"sv,
+						quoted(editorID));
+			} catch (...) {}
+
+			try {
 				const auto formID = form->GetFormID();
 				a_results.emplace_back(
 					"Form ID"sv,
