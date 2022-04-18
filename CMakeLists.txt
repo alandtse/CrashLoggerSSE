@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 set(NAME "CrashLogger")
 set(VERSION 1.0.0)
-set(VR_VERSION 2)
+set(VR_VERSION 3)
 option(COPY_OUTPUT "copy the output of build operations to the game directory" OFF)
 option(BUILD_SKYRIMVR "Build for Skyrim VR" OFF)
 
