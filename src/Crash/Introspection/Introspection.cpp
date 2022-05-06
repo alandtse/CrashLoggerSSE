@@ -146,13 +146,55 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto userdata = object->GetUserData();
-				if (userdata)
+				if (userdata) {
+					const auto name = userdata->GetDisplayFullName();
 					a_results.emplace_back(
-						"Recursing UserData"sv,
-						"---------"sv);
-				TESForm::filter(a_results, userdata);
+						fmt::format(
+							"{:\t>{}}Full Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+					const auto objectref = userdata->GetObjectReference();
+					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() :
+						""sv;
+					if (!filename.empty())
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}File"sv,
+								"",
+								tab_depth),
+							quoted(filename));
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking User Data"sv,
+							"",
+							tab_depth),
+						"-----");					
+						TESForm::filter(a_results, userdata, tab_depth + 1);
+					if (auto owner = userdata->GetOwner()) {
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Checking Owner"sv,
+								"",
+								tab_depth),
+							"-----");
+						TESForm::filter(a_results, owner, tab_depth + 1);
+					}
+				}	
 			} catch (...) {}
-
+			try {
+				const auto parent = object->parent;
+				const auto parentIndex = object->parentIndex;
+				if (parent)
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking Parent"sv,
+							"",
+							tab_depth),
+						fmt::format(
+							"{}"sv, parentIndex));
+				filter(a_results, parent, tab_depth + 1);
+			} catch (...) {}
 		}
 	};
 
