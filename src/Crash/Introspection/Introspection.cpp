@@ -93,6 +93,80 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class BSShaderProperty
+	{
+	public:
+		using value_type = RE::BSShaderProperty;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto form = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto formFlags = form->flags;
+				
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Flags"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"0x{:08X}"sv,
+						formFlags.underlying()));
+			} catch (...) {}
+			try {
+				const auto name = form->name.c_str();
+				if (name && name[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+			} catch (...) {}
+			try {
+				const auto rttiname = form->GetRTTI() ? form->GetRTTI()->GetName() : ""sv;
+				if (!rttiname.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}RTTIName"sv,
+							"",
+							tab_depth),
+						quoted(rttiname));
+			} catch (...) {}
+			try {
+				const auto formType = form->GetType();
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}NiPropertyType"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{:02}"sv,
+						formType));
+			} catch (...) {}
+			try {
+				for (auto i = 0; i < form->GetExtraDataSize(); i++) {
+					const auto extraData = form->GetExtraDataAt(i);
+					if (!extraData->GetName().empty()) {
+						const auto name = extraData->GetName().c_str();
+						if (name && name[0])
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}ExtraData[{}] Name"sv,
+									"",
+									tab_depth,
+									i),
+								quoted(name));
+					}
+				}
+			} catch (...) {}
+
+
+		}
+	};
 	class NiAVObject
 	{
 	public:
@@ -357,6 +431,7 @@ namespace Crash::Introspection
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
+				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 			});
 
 			Polymorphic _poly;
