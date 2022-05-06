@@ -18,7 +18,7 @@ namespace Crash::Introspection::SSE
 
 		static void filter(
 			filter_results& a_results,
-			const void* a_ptr) noexcept
+			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto form = static_cast<const value_type*>(a_ptr);
 
@@ -26,14 +26,20 @@ namespace Crash::Introspection::SSE
 				const auto file = form->GetDescriptionOwnerFile();
 				const auto filename = file ? file->GetFilename() : ""sv;
 				a_results.emplace_back(
-					"File"sv,
+					fmt::format(
+						"{:\t>{}}File"sv,
+						"",
+						tab_depth),
 					quoted(filename));
 			} catch (...) {}
 
 			try {
 				const auto formFlags = form->GetFormFlags();
 				a_results.emplace_back(
-					"Flags"sv,
+					fmt::format(
+						"{:\t>{}}Flags"sv,
+						"",
+						tab_depth),
 					fmt::format(
 						"0x{:08X}"sv,
 						formFlags));
@@ -43,7 +49,10 @@ namespace Crash::Introspection::SSE
 				const auto name = form->GetName();
 				if (name && name[0])
 					a_results.emplace_back(
-						"Name"sv,
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
 						quoted(name));
 			} catch (...) {}
 
@@ -51,14 +60,20 @@ namespace Crash::Introspection::SSE
 				const auto editorID = form->GetFormEditorID();
 				if (editorID && editorID[0])
 					a_results.emplace_back(
-						"Editor ID"sv,
+						fmt::format(
+							"{:\t>{}}Editor ID"sv,
+							"",
+							tab_depth),
 						quoted(editorID));
 			} catch (...) {}
 
 			try {
 				const auto formID = form->GetFormID();
 				a_results.emplace_back(
-					"Form ID"sv,
+					fmt::format(
+						"{:\t>{}}Form ID"sv,
+						"",
+						tab_depth),
 					fmt::format(
 						"0x{:08X}"sv,
 						formID));
@@ -67,7 +82,10 @@ namespace Crash::Introspection::SSE
 			try {
 				const auto formType = form->GetFormType();
 				a_results.emplace_back(
-					"Form Type"sv,
+					fmt::format(
+						"{:\t>{}}Form Type"sv,
+						"",
+						tab_depth),
 					fmt::format(
 						"{:02}"sv,
 						formType));
@@ -82,16 +100,18 @@ namespace Crash::Introspection::SSE
 
 		static void filter(
 			filter_results& a_results,
-			const void* a_ptr) noexcept
+			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-
+			tab_depth;
 			try {
-				object->GetRTTI()->GetName();
 				const auto name = object ? object->name.c_str() : ""sv;
 				if (!name.empty())
 					a_results.emplace_back(
-						"Name"sv,
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
 						quoted(name));
 			} catch (...) {}
 
@@ -99,7 +119,10 @@ namespace Crash::Introspection::SSE
 				const auto name = object->GetRTTI() ? object->GetRTTI()->GetName() : ""sv;
 				if (!name.empty())
 					a_results.emplace_back(
-						"RTTIName"sv,
+						fmt::format(
+							"{:\t>{}}RTTIName"sv,
+							"",
+							tab_depth),
 						quoted(name));
 			} catch (...) {}
 
@@ -111,7 +134,9 @@ namespace Crash::Introspection::SSE
 						if (name && name[0])
 							a_results.emplace_back(
 								fmt::format(
-									"ExtraData[{}] Name"sv,
+									"{:\t>{}}ExtraData[{}] Name"sv,
+									"",
+									tab_depth,
 									i),
 								quoted(name));
 					}
@@ -270,7 +295,7 @@ namespace Crash::Introspection
 					if (it != FILTERS.end()) {
 						const auto root = util::adjust_pointer<void>(_ptr, -static_cast<std::ptrdiff_t>(_col->offset));
 						const auto target = util::adjust_pointer<void>(root, static_cast<std::ptrdiff_t>(base->pmd.mDisp));
-						it->second(xInfo, target);
+						it->second(xInfo, target, 0);
 					}
 				}
 
