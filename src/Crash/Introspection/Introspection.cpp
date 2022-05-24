@@ -1,6 +1,9 @@
 #include "Crash/Introspection/Introspection.h"
 
 #include "Crash/Modules/ModuleHandler.h"
+#include "Crash/PDB/PdbHandler.h"
+#define MAGIC_ENUM_RANGE_MAX 256
+#include <magic_enum.hpp>
 
 namespace Crash::Introspection::SSE
 {
@@ -592,6 +595,13 @@ namespace Crash::Introspection
 			{
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
+					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
+					if (!pdbDetails.empty())
+						return fmt::format(
+							"(void* -> {}+{:07X} -> {})"sv,
+							_module->name(),
+							address - _module->address(),
+							pdbDetails);
 					return fmt::format(
 						"(void* -> {}+{:07X})"sv,
 						_module->name(),

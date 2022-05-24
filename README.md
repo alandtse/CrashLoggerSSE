@@ -35,6 +35,10 @@ Open folder in Visual Studio and build. If `SkyrimPluginTargets` is set, then co
 ## License
 [MIT](LICENSE)
 
+PDB requires `msdia140.dll` distributed under [Visual Studio C++ Redistributable](https://docs.microsoft.com/en-us/visualstudio/releases/2022/redistribution#dia-sdk)
+
+[PDB Handler](src/Crash/PDB/PdbHandler.cpp) derived from StackOverflow code.
+
 # Credits
  * [Ryan-rsm-McKenzie](https://github.com/Ryan-rsm-McKenzie) - Original code and CommonlibSSE
  * [CharmedBaryon](https://github.com/CharmedBaryon) - [CommonlibSSE-NG](https://github.com/CharmedBaryon/CommonLibSSE-NG) and [Sample Plugin Template](https://gitlab.com/colorglass/commonlibsse-sample-plugin)

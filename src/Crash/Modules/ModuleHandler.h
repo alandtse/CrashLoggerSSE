@@ -37,6 +37,7 @@ namespace Crash
 			}
 
 			[[nodiscard]] std::string_view name() const { return _name; }
+			[[nodiscard]] std::string_view path() const { return _path; }
 
 			[[nodiscard]] const RE::msvc::type_info* type_info() const { return _typeInfo; }
 
@@ -44,7 +45,7 @@ namespace Crash
 			friend class detail::Factory;
 
 			Module(std::string a_name, std::span<const std::byte> a_image);
-
+			Module(std::string a_name, std::span<const std::byte> a_image, std::string a_path);
 			[[nodiscard]] virtual std::string get_frame_info(const boost::stacktrace::frame& a_frame) const;
 
 		private:
@@ -53,6 +54,7 @@ namespace Crash
 			std::span<const std::byte> _data;
 			std::span<const std::byte> _rdata;
 			const RE::msvc::type_info* _typeInfo{ nullptr };
+			std::string _path;
 		};
 
 		[[nodiscard]] auto get_loaded_modules()

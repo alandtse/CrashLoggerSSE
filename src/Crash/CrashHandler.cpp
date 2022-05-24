@@ -2,6 +2,7 @@
 
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Modules/ModuleHandler.h"
+#include "Crash/PDB/PdbHandler.h"
 
 #define NOGDICAPMASKS
 #define NOVIRTUALKEYCODES
@@ -164,10 +165,14 @@ namespace Crash
 			const auto post = [&]() {
 				const auto mod = Introspection::get_module_for_pointer(eptr, a_modules);
 				if (mod) {
-					return fmt::format(
-						" {}+{:07X}"sv,
-						mod->name(),
-						eaddr - mod->address());
+					const auto pdbDetails = Crash::PDB::pdb_details(mod->path(), eaddr - mod->address());
+					if (!pdbDetails.empty())
+						return fmt::format(
+							" {}+{:07X} -> {})"sv,
+							mod->name(),
+							eaddr - mod->address(),
+							pdbDetails);
+					return fmt::format(" {}+{:07X}"sv, mod->name(), eaddr - mod->address());
 				} else {
 					return ""s;
 				}
