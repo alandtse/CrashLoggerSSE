@@ -437,16 +437,14 @@ namespace Crash
 				const std::span cmodules{ modules.begin(), modules.end() };
 				const auto log = get_log();
 
-				const auto print = [&](auto&& a_functor) {
+				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
 					try {
 						a_functor();
 					} catch (const std::exception& e) {
-						log->critical(
-							"\t{}"sv,
-							e.what());
+						log->critical("\t{}:\t{}"sv, a_name, e.what());
 					} catch (...) {
-						log->critical("\tERROR"sv);
+						log->critical("\t{}:\tERROR"sv, a_name);
 					}
 					log->flush();
 				};
@@ -457,19 +455,21 @@ namespace Crash
 				log->critical("CrashLoggerSSE v{}"sv, CrashLogger::PluginVersion.string());
 				log->flush();
 
-				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); });
-				print([&]() { print_sysinfo(*log); });
+				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
+				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 
-				print([&]() {
-					const Callstack callstack{ *a_exception->ExceptionRecord };
-					callstack.print(*log, cmodules);
-				});
+				print(
+					[&]() {
+						const Callstack callstack{ *a_exception->ExceptionRecord };
+						callstack.print(*log, cmodules);
+					},
+					"probable_callstack");
 
-				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); });
-				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); });
-				print([&]() { print_modules(*log, cmodules); });
-				print([&]() { print_xse_plugins(*log, cmodules); });
-				print([&]() { print_plugins(*log); });
+				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
+				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
+				print([&]() { print_modules(*log, cmodules); }, "print_modules");
+				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
+				print([&]() { print_plugins(*log); }, "print_plugins");
 			} catch (...) {}
 
 			::WinAPI::TerminateProcess(::WinAPI::GetCurrentProcess(), EXIT_FAILURE);
