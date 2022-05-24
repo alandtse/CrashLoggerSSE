@@ -225,16 +225,14 @@ namespace Crash
 
 			using value_type = std::pair<std::string, std::optional<REL::Version>>;
 			std::vector<value_type> plugins;
-			std::filesystem::path pluginDir{ "Data/SKSE/Plugins"sv };
-			for (const auto& elem : std::filesystem::directory_iterator(pluginDir)) {
-				if (const auto filename =
-						elem.path().has_filename() ?
-                            std::make_optional(elem.path().filename().string()) :
-                            std::nullopt;
-					filename && modules.contains(*filename)) {
-					plugins.emplace_back(
-						*std::move(filename),
-						REL::get_file_version(elem.path().wstring()));
+			for (const auto& m : modules) {
+				try {
+					std::filesystem::path pluginDir{ "Data/SKSE/Plugins"sv };
+					std::filesystem::path filename = pluginDir.append(m);
+					if (std::filesystem::exists(filename))
+						plugins.emplace_back(*std::move(std::make_optional(m)), REL::get_file_version(filename.wstring()));
+				} catch (const std::exception& e) {
+					a_log.critical("Skipping module {}:{}"sv, m, e.what());
 				}
 			}
 			std::sort(plugins.begin(), plugins.end(),
