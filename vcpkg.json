@@ -1,25 +1,51 @@
 {
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "crashloggersse",
-  "version-string": "1",
-  "dependencies": [
-    "boost-stacktrace",
-    "boost-stl-interfaces",
-    "fmt",
-    "frozen",
-    {
-      "name": "infoware",
-      "features": [
-        "d3d"
+  "version-string": "1.0.0.4",
+  "port-version": 0,
+  "description": "SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.",
+  "homepage": "https://github.com/alandtse/CrashLoggerSSE",
+  "license": "MIT",
+  "features": {
+    "plugin": {
+      "description": "Build the SKSE plugin.",
+      "dependencies": [
+        "articuno",
+        "boost-stacktrace",
+        "commonlibsse-ng",
+        "frozen",
+        {
+          "name": "infoware",
+          "features": [
+            "d3d"
+          ]
+        },
+        "magic-enum",
+        "rsm-binary-io"
       ]
     },
-    "rsm-binary-io",
-    "spdlog"
+    "tests": {
+      "description": "Build tests for the SKSE plugin.",
+      "dependencies": [
+        {
+          "name": "crashloggersse",
+          "default-features": false,
+          "features": [
+            "plugin"
+          ]
+        },
+        "catch2"
+      ]
+    }
+  },
+  "default-features": [
+    "plugin"
   ],
-   "builtin-baseline":"bba8794b82a0f44b8709f294850a2c8e96b61415",
-   "overrides":[
-      {
-         "name":"fmt",
-         "version":"8.0.1"
-      }
-   ]
+  "builtin-baseline": "8f1d60f2014729c80d1c7a95947c30cdfd7aa4ea",
+  "overrides": [
+    {
+      "name": "fmt",
+      "version": "8.0.1"
+    }
+  ]
 }

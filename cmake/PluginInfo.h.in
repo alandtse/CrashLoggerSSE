@@ -1,0 +1,14 @@
+#pragma once
+
+#include "SKSE/SKSE.h"
+
+namespace CrashLogger {
+    constexpr std::string_view PluginName = "@PROJECT_NAME@";
+
+    constexpr REL::Version PluginVersion = {
+        @PROJECT_VERSION_MAJOR@u,
+        @PROJECT_VERSION_MINOR@u,
+        @PROJECT_VERSION_PATCH@u,
+        @PROJECT_VERSION_TWEAK@u
+    };
+}

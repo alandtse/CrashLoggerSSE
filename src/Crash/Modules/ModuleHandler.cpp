@@ -1,6 +1,6 @@
 #include "Crash/Modules/ModuleHandler.h"
 
-#define WIN32_LEAN_AND_MEAN
+//#define WIN32_LEAN_AND_MEAN
 
 #define NOGDICAPMASKS
 #define NOVIRTUALKEYCODES
@@ -26,7 +26,7 @@
 #define NOMB
 #define NOMEMMGR
 #define NOMETAFILE
-#define NOMINMAX
+//#define NOMINMAX
 //#define NOMSG
 #define NOOPENFILE
 #define NOSCROLL
