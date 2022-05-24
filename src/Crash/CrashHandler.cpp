@@ -422,11 +422,14 @@ namespace Crash
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
-#ifndef NDEBUG
-			while (!::WinAPI::IsDebuggerPresent()) {}
-#endif
-
 			try {
+				const auto& debugConfig = CrashLogger::Config::GetSingleton().GetDebug();
+				if (debugConfig.GetWaitForDebugger()) {
+					while (!::WinAPI::IsDebuggerPresent()) {
+					}
+					if (::WinAPI::IsDebuggerPresent())
+						DebugBreak();
+				}
 				static std::mutex sync;
 				const std::lock_guard l{ sync };
 
