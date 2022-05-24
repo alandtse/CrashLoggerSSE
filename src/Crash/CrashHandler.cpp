@@ -2,8 +2,7 @@
 
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Modules/ModuleHandler.h"
-
-#define WIN32_LEAN_AND_MEAN
+#include "Crash/PDB/PdbHandler.h"
 
 #define NOGDICAPMASKS
 #define NOVIRTUALKEYCODES
@@ -29,7 +28,6 @@
 #define NOMB
 #define NOMEMMGR
 #define NOMETAFILE
-#define NOMINMAX
 #define NOMSG
 #define NOOPENFILE
 #define NOSCROLL
@@ -46,8 +44,10 @@
 #define NOMCX
 
 #include <Windows.h>
-
 #include <winternl.h>
+
+#include "PluginInfo.h"
+#include <Config.h>
 
 #undef max
 #undef min
@@ -57,12 +57,9 @@ namespace Crash
 	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
 	{
 		const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
-		auto it = std::find_if(
-			_stacktrace.cbegin(),
-			_stacktrace.cend(),
-			[&](auto&& a_elem) noexcept {
-				return reinterpret_cast<std::uintptr_t>(a_elem.address()) == exceptionAddress;
-			});
+		auto it = std::find_if(_stacktrace.cbegin(), _stacktrace.cend(), [&](auto&& a_elem) noexcept {
+			return reinterpret_cast<std::uintptr_t>(a_elem.address()) == exceptionAddress;
+		});
 
 		if (it == _stacktrace.cend()) {
 			it = _stacktrace.cbegin();
@@ -71,41 +68,29 @@ namespace Crash
 		_frames = std::span(it, _stacktrace.cend());
 	}
 
-	void Callstack::print(
-		spdlog::logger& a_log,
-		std::span<const module_pointer> a_modules) const
+	void Callstack::print(spdlog::logger& a_log, std::span<const module_pointer> a_modules) const
 	{
 		print_probable_callstack(a_log, a_modules);
 	}
 
 	std::string Callstack::get_size_string(std::size_t a_size)
 	{
-		return fmt::to_string(
-			fmt::to_string(a_size - 1)
-				.length());
+		return fmt::to_string(fmt::to_string(a_size - 1).length());
 	}
 
 	std::string Callstack::get_format(std::size_t a_nameWidth) const
 	{
-		return "\t[{:>"s +
-		       get_size_string(_frames.size()) +
-		       "}] 0x{:012X} {:>"s +
-		       fmt::to_string(a_nameWidth) +
-		       "}{}"s;
+		return "\t[{:>"s + get_size_string(_frames.size()) + "}] 0x{:012X} {:>"s + fmt::to_string(a_nameWidth) + "}{}"s;
 	}
 
-	void Callstack::print_probable_callstack(
-		spdlog::logger& a_log,
-		std::span<const module_pointer> a_modules) const
+	void Callstack::print_probable_callstack(spdlog::logger& a_log, std::span<const module_pointer> a_modules) const
 	{
 		a_log.critical("PROBABLE CALL STACK:"sv);
 
 		std::vector<const Modules::Module*> moduleStack;
 		moduleStack.reserve(_frames.size());
 		for (const auto& frame : _frames) {
-			const auto mod = Introspection::get_module_for_pointer(
-				frame.address(),
-				a_modules);
+			const auto mod = Introspection::get_module_for_pointer(frame.address(), a_modules);
 			if (mod && mod->in_range(frame.address())) {
 				moduleStack.push_back(mod);
 			} else {
@@ -115,23 +100,15 @@ namespace Crash
 
 		const auto format = get_format([&]() {
 			std::size_t max = 0;
-			std::for_each(
-				moduleStack.begin(),
-				moduleStack.end(),
-				[&](auto&& a_elem) {
-					max = a_elem ? std::max(max, a_elem->name().length()) : max;
-				});
+			std::for_each(moduleStack.begin(), moduleStack.end(),
+				[&](auto&& a_elem) { max = a_elem ? std::max(max, a_elem->name().length()) : max; });
 			return max;
 		}());
 
 		for (std::size_t i = 0; i < _frames.size(); ++i) {
 			const auto mod = moduleStack[i];
 			const auto& frame = _frames[i];
-			a_log.critical(
-				format,
-				i,
-				reinterpret_cast<std::uintptr_t>(frame.address()),
-				(mod ? mod->name() : ""sv),
+			a_log.critical(format, i, reinterpret_cast<std::uintptr_t>(frame.address()), (mod ? mod->name() : ""sv),
 				(mod ? mod->frame_info(frame) : ""s));
 		}
 	}
@@ -140,16 +117,10 @@ namespace Crash
 	{
 		a_log.critical("RAW CALL STACK:");
 
-		const auto format =
-			"\t[{:>"s +
-			get_size_string(_stacktrace.size()) +
-			"}] 0x{:X}"s;
+		const auto format = "\t[{:>"s + get_size_string(_stacktrace.size()) + "}] 0x{:X}"s;
 
 		for (std::size_t i = 0; i < _stacktrace.size(); ++i) {
-			a_log.critical(
-				format,
-				i,
-				reinterpret_cast<std::uintptr_t>(_stacktrace[i].address()));
+			a_log.critical(format, i, reinterpret_cast<std::uintptr_t>(_stacktrace[i].address()));
 		}
 	}
 
@@ -181,9 +152,7 @@ namespace Crash
 			return log;
 		}
 
-		void print_exception(
-			spdlog::logger& a_log,
-			const ::EXCEPTION_RECORD& a_exception,
+		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception,
 			std::span<const module_pointer> a_modules)
 		{
 #define EXCEPTION_CASE(a_code) \
@@ -194,14 +163,16 @@ namespace Crash
 			const auto eaddr = reinterpret_cast<std::uintptr_t>(a_exception.ExceptionAddress);
 
 			const auto post = [&]() {
-				const auto mod = Introspection::get_module_for_pointer(
-					eptr,
-					a_modules);
+				const auto mod = Introspection::get_module_for_pointer(eptr, a_modules);
 				if (mod) {
-					return fmt::format(
-						" {}+{:07X}"sv,
-						mod->name(),
-						eaddr - mod->address());
+					const auto pdbDetails = Crash::PDB::pdb_details(mod->path(), eaddr - mod->address());
+					if (!pdbDetails.empty())
+						return fmt::format(
+							" {}+{:07X} -> {})"sv,
+							mod->name(),
+							eaddr - mod->address(),
+							pdbDetails);
+					return fmt::format(" {}+{:07X}"sv, mod->name(), eaddr - mod->address());
 				} else {
 					return ""s;
 				}
@@ -234,30 +205,18 @@ namespace Crash
 				}
 			}();
 
-			a_log.critical(
-				"Unhandled exception{} at 0x{:012X}{}"sv,
-				exception,
-				eaddr,
-				post);
+			a_log.critical("Unhandled exception{} at 0x{:012X}{}"sv, exception, eaddr, post);
 
 #undef EXCEPTION_CASE
 		}
 
-		void print_xse_plugins(
-			spdlog::logger& a_log,
-			std::span<const module_pointer> a_modules)
+		void print_xse_plugins(spdlog::logger& a_log, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("SKSE PLUGINS:"sv);
 
 			const auto ci = [](std::string_view a_lhs, std::string_view a_rhs) {
-				const auto cmp =
-					_strnicmp(
-						a_lhs.data(),
-						a_rhs.data(),
-						std::min(a_lhs.size(), a_rhs.size()));
-				return cmp == 0 && a_lhs.length() != a_rhs.length() ?
-                           a_lhs.length() < a_rhs.length() :
-                           cmp < 0;
+				const auto cmp = _strnicmp(a_lhs.data(), a_rhs.data(), std::min(a_lhs.size(), a_rhs.size()));
+				return cmp == 0 && a_lhs.length() != a_rhs.length() ? a_lhs.length() < a_rhs.length() : cmp < 0;
 			};
 
 			const auto modules = [&]() {
@@ -271,32 +230,23 @@ namespace Crash
 
 			using value_type = std::pair<std::string, std::optional<REL::Version>>;
 			std::vector<value_type> plugins;
-			std::filesystem::path pluginDir{ "Data/SKSE/Plugins"sv };
-			for (const auto& elem : std::filesystem::directory_iterator(pluginDir)) {
-				if (const auto filename =
-						elem.path().has_filename() ?
-                            std::make_optional(elem.path().filename().string()) :
-                            std::nullopt;
-					filename && modules.contains(*filename)) {
-					plugins.emplace_back(
-						*std::move(filename),
-						REL::get_file_version(elem.path().wstring()));
+			for (const auto& m : modules) {
+				try {
+					std::filesystem::path pluginDir{ "Data/SKSE/Plugins"sv };
+					std::filesystem::path filename = pluginDir.append(m);
+					if (std::filesystem::exists(filename))
+						plugins.emplace_back(*std::move(std::make_optional(m)), REL::get_file_version(filename.wstring()));
+				} catch (const std::exception& e) {
+					a_log.critical("Skipping module {}:{}"sv, m, e.what());
 				}
 			}
-
-			std::sort(
-				plugins.begin(),
-				plugins.end(),
-				[=](const value_type& a_lhs, const value_type& a_rhs) {
-					return ci(a_lhs.first, a_rhs.first);
-				});
+			std::sort(plugins.begin(), plugins.end(),
+				[=](const value_type& a_lhs, const value_type& a_rhs) { return ci(a_lhs.first, a_rhs.first); });
 			for (const auto& [plugin, version] : plugins) {
 				const auto ver = [&]() {
 					if (version) {
 						std::span view{ version->begin(), version->end() };
-						const auto it = std::find_if(
-							view.rbegin(),
-							view.rend(),
+						const auto it = std::find_if(view.rbegin(), view.rend(),
 							[](std::uint16_t a_val) noexcept { return a_val != 0; });
 						if (it != view.rend()) {
 							std::string result = " v";
@@ -316,34 +266,23 @@ namespace Crash
 			}
 		}
 
-		void print_modules(
-			spdlog::logger& a_log,
-			std::span<const module_pointer> a_modules)
+		void print_modules(spdlog::logger& a_log, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("MODULES:"sv);
 
 			const auto format = [&]() {
 				const auto width = [&]() {
 					std::size_t max = 0;
-					std::for_each(
-						a_modules.begin(),
-						a_modules.end(),
-						[&](auto&& a_elem) {
-							max = std::max(max, a_elem->name().length());
-						});
+					std::for_each(a_modules.begin(), a_modules.end(),
+						[&](auto&& a_elem) { max = std::max(max, a_elem->name().length()); });
 					return max;
 				}();
 
-				return "\t{:<"s +
-				       fmt::to_string(width) +
-				       "} 0x{:012X}"s;
+				return "\t{:<"s + fmt::to_string(width) + "} 0x{:012X}"s;
 			}();
 
 			for (const auto& mod : a_modules) {
-				a_log.critical(
-					format,
-					mod->name(),
-					mod->address());
+				a_log.critical(format, mod->name(), mod->address());
 			}
 		}
 
@@ -353,42 +292,28 @@ namespace Crash
 
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			if (datahandler) {
-#ifndef SKYRIMVR // SKYRIM VR does not have light esps so only ->files is necessary.
-				const auto& [files, smallfiles] = datahandler->compiledFileCollection;
-#else
-				auto& files = datahandler->files;
-#endif
-
-				const auto fileFormat = [&]() {
-					return "\t[{:>02X}]{:"s +
-#ifndef SKYRIMVR
-					       (!smallfiles.empty() ? "5"s : "1"s) +
-#endif
-					       "}{}"s;
-				}();
-
-				for (const auto file : files) {
-					a_log.critical(
-						fileFormat,
-						file->GetCompileIndex(),
-						"",
-						file->GetFilename());
+				if (!REL::Module::IsVR()) {
+					const auto& [files, smallfiles] = datahandler->compiledFileCollection;
+					const auto fileFormat = [&]() {
+						return "\t[{:>02X}]{:"s + (!smallfiles.empty() ? "5"s : "1"s) + "}{}"s;
+					}();
+					for (const auto file : files) {
+						a_log.critical(fileFormat, file->GetCompileIndex(), "", file->GetFilename());
+					}
+					for (const auto file : smallfiles) {
+						a_log.critical("\t[FE:{:>03X}] {}"sv, file->GetSmallFileCompileIndex(), file->GetFilename());
+					}
+				} else {  // SKYRIM VR does not have light esps so only ->files is necessary.
+					auto& files = datahandler->files;
+					const auto fileFormat = [&]() { return "\t[{:>02X}]{:"s + "}{}"s; }();
+					for (const auto file : files) {
+						a_log.critical(fileFormat, file->GetCompileIndex(), "", file->GetFilename());
+					}
 				}
-
-#ifndef SKYRIMVR
-				for (const auto file : smallfiles) {
-					a_log.critical(
-						"\t[FE:{:>03X}] {}"sv,
-						file->GetSmallFileCompileIndex(),
-						file->GetFilename());
-				}
-#endif
 			}
 		}
 
-		void print_registers(
-			spdlog::logger& a_log,
-			const ::CONTEXT& a_context,
+		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
 			std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("REGISTERS:"sv);
@@ -419,18 +344,11 @@ namespace Crash
 			const auto analysis = Introspection::analyze_data(todo, a_modules);
 			for (std::size_t i = 0; i < regs.size(); ++i) {
 				const auto& [name, reg] = regs[i];
-				a_log.critical(
-					"\t{:<3} 0x{:<16X} {}"sv,
-					name,
-					reg,
-					analysis[i]);
+				a_log.critical("\t{:<3} 0x{:<16X} {}"sv, name, reg, analysis[i]);
 			}
 		}
 
-		void print_stack(
-			spdlog::logger& a_log,
-			const ::CONTEXT& a_context,
-			std::span<const module_pointer> a_modules)
+		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("STACK:"sv);
 
@@ -444,48 +362,31 @@ namespace Crash
 
 				const auto format = [&]() {
 					return "\t[RSP+{:<"s +
-					       fmt::to_string(
-							   fmt::format("{:X}"sv, (stack.size() - 1) * sizeof(std::size_t))
-								   .length()) +
+					       fmt::to_string(fmt::format("{:X}"sv, (stack.size() - 1) * sizeof(std::size_t)).length()) +
 					       "X}] 0x{:<16X} {}"s;
 				}();
 
 				constexpr std::size_t blockSize = 1000;
 				std::size_t idx = 0;
 				for (std::size_t off = 0; off < stack.size(); off += blockSize) {
-					const auto analysis =
-						Introspection::analyze_data(
-							stack.subspan(off, std::min<std::size_t>(stack.size() - off, blockSize)),
-							a_modules);
+					const auto analysis = Introspection::analyze_data(
+						stack.subspan(off, std::min<std::size_t>(stack.size() - off, blockSize)), a_modules);
 					for (const auto& data : analysis) {
-						a_log.critical(
-							format,
-							idx * sizeof(std::size_t),
-							stack[idx],
-							data);
+						a_log.critical(format, idx * sizeof(std::size_t), stack[idx], data);
 						++idx;
 					}
 				}
 			}
 		}
 
-		void print_sysinfo(
-			spdlog::logger& a_log)
+		void print_sysinfo(spdlog::logger& a_log)
 		{
 			a_log.critical("SYSTEM SPECS:"sv);
 
 			const auto os = iware::system::OS_info();
-			a_log.critical(
-				"\tOS: {} v{}.{}.{}"sv,
-				os.full_name,
-				os.major,
-				os.minor,
-				os.patch);
+			a_log.critical("\tOS: {} v{}.{}.{}"sv, os.full_name, os.major, os.minor, os.patch);
 
-			a_log.critical(
-				"\tCPU: {} {}"sv,
-				iware::cpu::vendor(),
-				iware::cpu::model_name());
+			a_log.critical("\tCPU: {} {}"sv, iware::cpu::vendor(), iware::cpu::model_name());
 
 			const auto vendor = [](iware::gpu::vendor_t a_vendor) {
 				using vendor_t = iware::gpu::vendor_t;
@@ -509,11 +410,7 @@ namespace Crash
 			const auto gpus = iware::gpu::device_properties();
 			for (std::size_t i = 0; i < gpus.size(); ++i) {
 				const auto& gpu = gpus[i];
-				a_log.critical(
-					"\tGPU #{}: {} {}"sv,
-					i + 1,
-					vendor(gpu.vendor),
-					gpu.name);
+				a_log.critical("\tGPU #{}: {} {}"sv, i + 1, vendor(gpu.vendor), gpu.name);
 			}
 
 			const auto gibibyte = [](std::uint64_t a_bytes) {
@@ -522,21 +419,22 @@ namespace Crash
 			};
 
 			const auto mem = iware::system::memory();
-			a_log.critical(
-				"\tPHYSICAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
-				gibibyte(mem.physical_total - mem.physical_available),
-				gibibyte(mem.physical_total));
+			a_log.critical("\tPHYSICAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
+				gibibyte(mem.physical_total - mem.physical_available), gibibyte(mem.physical_total));
 		}
 
 #undef SETTING_CASE
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
-#ifndef NDEBUG
-			while (!::WinAPI::IsDebuggerPresent()) {}
-#endif
-
 			try {
+				const auto& debugConfig = CrashLogger::Config::GetSingleton().GetDebug();
+				if (debugConfig.GetWaitForDebugger()) {
+					while (!::WinAPI::IsDebuggerPresent()) {
+					}
+					if (::WinAPI::IsDebuggerPresent())
+						DebugBreak();
+				}
 				static std::mutex sync;
 				const std::lock_guard l{ sync };
 
@@ -544,66 +442,58 @@ namespace Crash
 				const std::span cmodules{ modules.begin(), modules.end() };
 				const auto log = get_log();
 
-				const auto print = [&](auto&& a_functor) {
+				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
 					try {
 						a_functor();
 					} catch (const std::exception& e) {
-						log->critical(
-							"\t{}"sv,
-							e.what());
+						log->critical("\t{}:\t{}"sv, a_name, e.what());
 					} catch (...) {
-						log->critical("\tERROR"sv);
+						log->critical("\t{}:\tERROR"sv, a_name);
 					}
 					log->flush();
 				};
 
 				const auto runtimeVer = REL::Module::get().version();
-#ifndef SKYRIMVR
-				log->critical("Skyrim SSE v{}.{}.{}"sv, runtimeVer[0], runtimeVer[1], runtimeVer[2]);
-#else
-				log->critical("Skyrim VR v{}.{}.{}"sv, runtimeVer[0], runtimeVer[1], runtimeVer[2]);
-#endif
-				log->critical("CrashLoggerSSE v{}"sv, Plugin::VERSION.string().data());
+				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1],
+					runtimeVer[2]);
+				log->critical("CrashLoggerSSE v{}"sv, CrashLogger::PluginVersion.string());
 				log->flush();
 
-				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); });
-				print([&]() { print_sysinfo(*log); });
+				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
+				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 
-				print([&]() {
-					const Callstack callstack{ *a_exception->ExceptionRecord };
-					callstack.print(*log, cmodules);
-				});
+				print(
+					[&]() {
+						const Callstack callstack{ *a_exception->ExceptionRecord };
+						callstack.print(*log, cmodules);
+					},
+					"probable_callstack");
 
-				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); });
-				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); });
-				print([&]() { print_modules(*log, cmodules); });
-				print([&]() { print_xse_plugins(*log, cmodules); });
-				print([&]() { print_plugins(*log); });
+				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
+				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
+				print([&]() { print_modules(*log, cmodules); }, "print_modules");
+				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
+				print([&]() { print_plugins(*log); }, "print_plugins");
 			} catch (...) {}
 
-			::WinAPI::TerminateProcess(
-				::WinAPI::GetCurrentProcess(),
-				EXIT_FAILURE);
+			::WinAPI::TerminateProcess(::WinAPI::GetCurrentProcess(), EXIT_FAILURE);
 		}
 
 		std::int32_t _stdcall VectoredExceptions(::EXCEPTION_POINTERS*) noexcept
 		{
-			::SetUnhandledExceptionFilter(
-				reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
+			::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
 			return EXCEPTION_CONTINUE_SEARCH;
 		}
-	}
+	}  // namespace
 
 	void Install()
 	{
 		const auto success =
-			::AddVectoredExceptionHandler(
-				1,
-				reinterpret_cast<::PVECTORED_EXCEPTION_HANDLER>(&VectoredExceptions));
+			::AddVectoredExceptionHandler(1, reinterpret_cast<::PVECTORED_EXCEPTION_HANDLER>(&VectoredExceptions));
 		if (success == nullptr) {
 			util::report_and_fail("failed to install vectored exception handler"sv);
 		}
-		logger::debug("installed crash handlers"sv);
+		logger::info("installed crash handlers"sv);
 	}
-}
+}  // namespace Crash

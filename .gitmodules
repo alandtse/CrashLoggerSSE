@@ -1,6 +1,0 @@
-[submodule "external/CommonLibSSE"]
-	path = external/CommonLibSSE
-	url = https://github.com/Ryan-rsm-McKenzie/CommonLibSSE
-[submodule "external/CommonLibVR"]
-	path = external/CommonLibVR
-	url = https://github.com/alandtse/CommonLibVR.git

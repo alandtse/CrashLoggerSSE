@@ -12,11 +12,8 @@ SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.
 	* Add the environment variable `VCPKG_ROOT` with the value as the path to the folder containing vcpkg
 * [Visual Studio Community 2022](https://visualstudio.microsoft.com/)
 	* Desktop development with C++
-* [CommonLibSSE](https://github.com/Ryan-rsm-McKenzie/CommonLibSSE)
-	* Add this as as an environment variable `CommonLibSSEPath` or use submodule in `/external`
-* [CommonLibVR](https://github.com/alandtse/CommonLibVR/tree/vr)
-	* You need to build from the vr branch
-	* Add this as as an environment variable `CommonLibVRPath`
+* [CommonLibSSE-NG](https://github.com/CharmedBaryon/CommonLibSSE-NG)
+
 
 ## User Requirements
 * [Address Library for SKSE](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
@@ -33,24 +30,16 @@ SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.
 ```
 git clone https://github.com/alandtse/CrashLoggerSSE.git
 cd CrashLoggerSSE
-# pull commonlib /extern to override the path settings
-git submodule init
-# to update submodules to checked in build
-git submodule update
 ```
-
-### SSE
-```
-cmake --preset vs2022-windows-vcpkg
-cmake --build build --config Release
-```
-### VR
-```
-cmake --preset vs2022-windows-vcpkg-vr
-cmake --build buildvr --config Release
-```
+Open folder in Visual Studio and build. If `SkyrimPluginTargets` is set, then compiled dlls/pdb will be copied to `${SkyrimPluginTargets}/SKSE/Plugins/`.
 ## License
 [MIT](LICENSE)
 
+PDB requires `msdia140.dll` distributed under [Visual Studio C++ Redistributable](https://docs.microsoft.com/en-us/visualstudio/releases/2022/redistribution#dia-sdk)
+
+[PDB Handler](src/Crash/PDB/PdbHandler.cpp) derived from StackOverflow code.
+
 # Credits
- * Ryan-rsm-McKenzie - Original code
+ * [Ryan-rsm-McKenzie](https://github.com/Ryan-rsm-McKenzie) - Original code and CommonlibSSE
+ * [CharmedBaryon](https://github.com/CharmedBaryon) - [CommonlibSSE-NG](https://github.com/CharmedBaryon/CommonLibSSE-NG) and [Sample Plugin Template](https://gitlab.com/colorglass/commonlibsse-sample-plugin)
+

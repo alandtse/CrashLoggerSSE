@@ -1,106 +1,199 @@
 {
+  "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
   "configurePresets": [
     {
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": {
-          "type": "STRING",
-          "value": "Release"
-        }
-      },
-      "errors": {
-        "deprecated": true
-      },
+      "name": "vcpkg",
       "hidden": true,
-      "name": "cmake-dev",
-      "warnings": {
-        "deprecated": true,
-        "dev": true
-      }
-    },
-    {
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "STRING",
           "value": "$env{VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        }
-      },
-      "hidden": true,
-      "name": "vcpkg"
-    },
-    {
-      "cacheVariables": {
-        "CMAKE_MSVC_RUNTIME_LIBRARY": {
-          "type": "STRING",
-          "value": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
         },
         "VCPKG_TARGET_TRIPLET": {
           "type": "STRING",
-          "value": "x64-windows-static-md"
+          "value": "x64-windows-skse"
+        },
+        "VCPKG_OVERLAY_TRIPLETS": {
+          "type": "STRING",
+          "value": "${sourceDir}/cmake"
+        },
+        "CMAKE_MSVC_RUNTIME_LIBRARY": {
+          "type": "STRING",
+          "value": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
         }
-      },
+      }
+    },
+    {
+      "name": "clang",
       "hidden": true,
-      "name": "windows"
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "/EHsc -Wno-overloaded-virtual -Wno-delete-non-abstract-non-virtual-dtor $penv{CXXFLAGS}",
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "intelliSenseMode": "windows-clang-x64",
+          "enableMicrosoftCodeAnalysis": true,
+          "enableClangTidyCodeAnalysis": true
+        }
+      }
     },
     {
-      "binaryDir": "${sourceDir}/buildvr",
-      "cacheVariables": {
-        "BUILD_SKYRIMVR": true
-      },
+      "name": "build-tests",
+      "displayName": "Build Tests",
       "hidden": true,
-      "name": "vr"
+      "description": "Include test suites in the build.",
+      "cacheVariables": {
+        "BUILD_TESTS": {
+          "type": "STRING",
+          "value": "OFF"
+        }
+      }
     },
     {
-      "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /external:anglebrackets /external:W0 $penv{CXXFLAGS}"
-      },
-      "generator": "Visual Studio 16 2019",
+      "name": "Debug-MSVC",
       "inherits": [
-        "cmake-dev",
-        "vcpkg",
-        "windows"
+        "vcpkg"
       ],
-      "name": "vs2019-windows-vcpkg"
+      "displayName": "Debug",
+      "description": "Debug build for testing.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug-msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": {
+          "type": "STRING",
+          "value": "Debug"
+        }
+      }
     },
     {
-      "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /WX $penv{CXXFLAGS}"
-      },
-      "generator": "Visual Studio 17 2022",
+      "name": "Release-MSVC",
       "inherits": [
-        "cmake-dev",
-        "vcpkg",
-        "windows"
+        "vcpkg"
       ],
-      "name": "vs2022-windows-vcpkg",
-      "toolset": "v143"
+      "displayName": "Release",
+      "description": "Optimized release build.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/relwithdebinfo-msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": {
+          "type": "STRING",
+          "value": "RelWithDebInfo"
+        }
+      }
     },
     {
-      "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /external:anglebrackets /external:W0 $penv{CXXFLAGS}"
-      },
-      "generator": "Visual Studio 16 2019",
+      "name": "Debug-Clang",
       "inherits": [
-        "vr",
-        "cmake-dev",
         "vcpkg",
-        "windows"
+        "clang"
       ],
-      "name": "vs2019-windows-vcpkg-vr"
-    },    {
+      "displayName": "Debug",
+      "description": "Debug build for testing.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug-clang",
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /external:anglebrackets /external:W0 $penv{CXXFLAGS}"
-      },
-      "generator": "Visual Studio 17 2022",
+        "CMAKE_BUILD_TYPE": {
+          "type": "STRING",
+          "value": "Debug"
+        }
+      }
+    },
+    {
+      "name": "Release-Clang",
       "inherits": [
-        "vr",
-        "cmake-dev",
         "vcpkg",
-        "windows"
+        "clang"
       ],
-      "name": "vs2022-windows-vcpkg-vr",
-      "toolset": "v143"
+      "displayName": "Release",
+      "description": "Optimized release build.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/relwithdebinfo-clang",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": {
+          "type": "STRING",
+          "value": "RelWithDebInfo"
+        }
+      }
     }
   ],
-  "version": 2
+  "buildPresets": [
+    {
+      "name": "Release-MSVC",
+      "displayName": "Release (MSVC)",
+      "configurePreset": "Release-MSVC",
+      "description": "Optimized release build."
+    },
+    {
+      "name": "Debug-MSVC",
+      "displayName": "Debug (MSVC)",
+      "configurePreset": "Debug-MSVC",
+      "description": "Debug build for testing."
+    },
+    {
+      "name": "Release-Clang",
+      "displayName": "Release (Clang)",
+      "configurePreset": "Release-Clang",
+      "description": "Optimized release build."
+    },
+    {
+      "name": "Debug-Clang",
+      "displayName": "Debug (Clang)",
+      "configurePreset": "Debug-Clang",
+      "description": "Debug build for testing."
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "All-Tests",
+      "displayName": "All Tests",
+      "configurePreset": "Debug-MSVC",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "Unit-Tests",
+      "displayName": "Unit Tests",
+      "description": "Runs tests that do not require any Skyrim module loaded into the process.",
+      "inherits": "All-Tests",
+      "filter": {
+        "exclude": {
+          "label": "[integration],[e2e]"
+        }
+      }
+    },
+    {
+      "name": "Integration-Tests",
+      "displayName": "Integration Tests",
+      "description": "Runs tests that interact with a Skyrim module at rest (do not require the Skyrim module to have run any main function).",
+      "inherits": "All-Tests",
+      "filter": {
+        "include": {
+          "label": "[integration]"
+        }
+      }
+    },
+    {
+      "name": "E2E-Tests",
+      "displayName": "End-to-End Tests",
+      "description": "Runs test that depend on a fully running Skyrim engine in the process.",
+      "inherits": "All-Tests",
+      "filter": {
+        "include": {
+          "label": "[e2e]"
+        }
+      }
+    }
+  ]
 }

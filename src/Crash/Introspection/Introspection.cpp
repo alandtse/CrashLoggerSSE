@@ -1,6 +1,9 @@
 #include "Crash/Introspection/Introspection.h"
 
 #include "Crash/Modules/ModuleHandler.h"
+#include "Crash/PDB/PdbHandler.h"
+#define MAGIC_ENUM_RANGE_MAX 256
+#include <magic_enum.hpp>
 
 namespace Crash::Introspection::SSE
 {
@@ -11,10 +14,11 @@ namespace Crash::Introspection::SSE
 		return fmt::format("\"{}\""sv, a_str);
 	}
 
+	template <class T = RE::TESForm>
 	class TESForm
 	{
 	public:
-		using value_type = RE::TESForm;
+		using value_type = T;
 
 		static void filter(
 			filter_results& a_results,
@@ -25,24 +29,37 @@ namespace Crash::Introspection::SSE
 			try {
 				const auto file = form->GetDescriptionOwnerFile();
 				const auto filename = file ? file->GetFilename() : ""sv;
-				a_results.emplace_back(
-					fmt::format(
-						"{:\t>{}}File"sv,
-						"",
-						tab_depth),
-					quoted(filename));
+				if (!filename.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}File"sv,
+							"",
+							tab_depth),
+						quoted(filename));
 			} catch (...) {}
 
 			try {
 				const auto formFlags = form->GetFormFlags();
+				using recordFlags = value_type::RecordFlags::RecordFlag;
+				std::string flagString = "";
+				constexpr auto flagEntries = magic_enum::enum_entries<recordFlags>();
+				for (const auto& entry : flagEntries) {
+					const auto flag = entry.first;
+					const auto flagName = entry.second;
+					if (flag & formFlags)
+						flagString = flagString.empty() ?
+						flagName:
+						flagString.append(" | "sv).append(flagName);
+				}
 				a_results.emplace_back(
 					fmt::format(
 						"{:\t>{}}Flags"sv,
 						"",
 						tab_depth),
 					fmt::format(
-						"0x{:08X}"sv,
-						formFlags));
+						"0x{:08X} {}"sv,
+						formFlags,
+						flagString));
 			} catch (...) {}
 
 			try {
@@ -61,7 +78,7 @@ namespace Crash::Introspection::SSE
 				if (editorID && editorID[0])
 					a_results.emplace_back(
 						fmt::format(
-							"{:\t>{}}Editor ID"sv,
+							"{:\t>{}}EditorID"sv,
 							"",
 							tab_depth),
 						quoted(editorID));
@@ -71,7 +88,7 @@ namespace Crash::Introspection::SSE
 				const auto formID = form->GetFormID();
 				a_results.emplace_back(
 					fmt::format(
-						"{:\t>{}}Form ID"sv,
+						"{:\t>{}}FormID"sv,
 						"",
 						tab_depth),
 					fmt::format(
@@ -81,14 +98,40 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto formType = form->GetFormType();
-				a_results.emplace_back(
-					fmt::format(
-						"{:\t>{}}Form Type"sv,
-						"",
-						tab_depth),
-					fmt::format(
-						"{:02}"sv,
-						formType));
+				const auto formTypeName = magic_enum::enum_name(formType);
+				if (!formTypeName.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}FormType"sv,
+							"",
+							tab_depth),
+						formTypeName);
+			} catch (...) {}
+		}
+	};
+
+	class TESFullName
+	{
+	public:
+		using value_type = RE::TESFullName;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			if (!object)
+				return;
+			try {
+				const auto name = object->GetFullName();
+				if (name && name[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}GetFullName"sv,
+							"",
+							tab_depth),
+						quoted(name));
 			} catch (...) {}
 		}
 	};
@@ -106,7 +149,6 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto formFlags = form->flags;
-				
 				a_results.emplace_back(
 					fmt::format(
 						"{:\t>{}}Flags"sv,
@@ -114,7 +156,7 @@ namespace Crash::Introspection::SSE
 						tab_depth),
 					fmt::format(
 						"0x{:08X}"sv,
-						formFlags.underlying()));
+						formFlags.get()));
 			} catch (...) {}
 			try {
 				const auto name = form->name.c_str();
@@ -177,7 +219,8 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			tab_depth;
+			if (!object)
+				return;
 			try {
 				const auto name = object ? object->name.c_str() : ""sv;
 				if (!name.empty())
@@ -230,7 +273,7 @@ namespace Crash::Introspection::SSE
 						quoted(name));
 					const auto objectref = userdata->GetObjectReference();
 					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() :
-						""sv;
+                                                                                       ""sv;
 					if (!filename.empty())
 						a_results.emplace_back(
 							fmt::format(
@@ -243,8 +286,8 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}Checking User Data"sv,
 							"",
 							tab_depth),
-						"-----");					
-						TESForm::filter(a_results, userdata, tab_depth + 1);
+						"-----");
+					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
 					if (auto owner = userdata->GetOwner()) {
 						a_results.emplace_back(
 							fmt::format(
@@ -252,14 +295,14 @@ namespace Crash::Introspection::SSE
 								"",
 								tab_depth),
 							"-----");
-						TESForm::filter(a_results, owner, tab_depth + 1);
+						TESForm<RE::TESForm>::filter(a_results, owner, tab_depth + 1);
 					}
-				}	
+				}
 			} catch (...) {}
 			try {
 				const auto parent = object->parent;
 				const auto parentIndex = object->parentIndex;
-				if (parent)
+				if (parent) {
 					a_results.emplace_back(
 						fmt::format(
 							"{:\t>{}}Checking Parent"sv,
@@ -267,9 +310,234 @@ namespace Crash::Introspection::SSE
 							tab_depth),
 						fmt::format(
 							"{}"sv, parentIndex));
-				filter(a_results, parent, tab_depth + 1);
+					filter(a_results, parent, tab_depth + 1);
+				}
 			} catch (...) {}
 		}
+	};
+
+	class NiStream
+	{
+	public:
+		using value_type = RE::NiStream;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& header = object->header;
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Header"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"author: {} version: {} processScript: {} exportScript: {}",
+						header.author,
+						header.version,
+						header.processScript,
+						header.exportScript));
+			} catch (...) {}
+
+			try {
+				const auto lastLoadedRTTI = object->lastLoadedRTTI;
+				if (lastLoadedRTTI && lastLoadedRTTI[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}lastLoadedRTTI"sv,
+							"",
+							tab_depth),
+						quoted(lastLoadedRTTI));
+			} catch (...) {}
+
+			try {
+				const auto inputFilePath = object->inputFilePath;
+				if (inputFilePath && inputFilePath[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}inputFilePath"sv,
+							"",
+							tab_depth),
+						quoted(inputFilePath));
+			} catch (...) {}
+
+			try {
+				const auto filePath = object->filePath;
+				if (filePath && filePath[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}filePath"sv,
+							"",
+							tab_depth),
+						quoted(filePath));
+			} catch (...) {}
+		}
+	};
+	class BSShaderMaterial
+	{
+	public:
+		using value_type = RE::BSShaderMaterial;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& feature = object->GetFeature();
+				const auto featureName = magic_enum::enum_name(feature);
+				if (!featureName.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Feature"sv,
+							"",
+							tab_depth),
+						featureName);
+			} catch (...) {}
+
+			try {
+				const auto type = object->GetType();
+				const auto typeName = magic_enum::enum_name(type);
+				if (!typeName.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Type"sv,
+							"",
+							tab_depth),
+						quoted(typeName));
+			} catch (...) {}
+		}
+	};
+
+	class hkbCharacter
+	{
+	public:
+		using value_type = RE::hkbCharacter;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->name;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+		};
+	};
+
+	class hkbNode
+	{
+	public:
+		using value_type = RE::hkbNode;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->name;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+			try {
+				const auto& id = object->id;
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}ID"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"0x{:08X}"sv,
+						id));
+			} catch (...) {}
+		};
+	};
+
+class hkpWorldObject
+	{
+	public:
+		using value_type = RE::hkpWorldObject;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->name;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+			try {
+				const auto userdata = object->GetUserData();
+				if (userdata) {
+					const auto name = userdata->GetDisplayFullName();
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Full Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+					const auto objectref = userdata->GetObjectReference();
+					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() :
+                                                                                       ""sv;
+					if (!filename.empty())
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}File"sv,
+								"",
+								tab_depth),
+							quoted(filename));
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking User Data"sv,
+							"",
+							tab_depth),
+						"-----");
+					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
+					if (auto owner = userdata->GetOwner()) {
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Checking Owner"sv,
+								"",
+								tab_depth),
+							"-----");
+						TESForm<RE::TESForm>::filter(a_results, owner, tab_depth + 1);
+					}
+				}
+			} catch (...) {}
+
+		};
 	};
 
 }
@@ -295,7 +563,19 @@ namespace Crash::Introspection
 		class Integer
 		{
 		public:
-			[[nodiscard]] std::string name() const { return "(size_t)"s; }
+			Integer(std::size_t a_value) noexcept :
+				_value(a_value),
+				name_string(a_value >> 63 ?
+								fmt::format("(size_t) [uint: {} int: {}]"s, _value, static_cast<std::make_signed_t<size_t>>(_value)) :
+                                fmt::format("(size_t) [{}]"s, _value))
+			{
+			}
+
+			[[nodiscard]] std::string name() const { return name_string; }
+
+		private:
+			const std::size_t _value;
+			const std::string name_string;
 		};
 
 		class Pointer
@@ -315,6 +595,13 @@ namespace Crash::Introspection
 			{
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
+					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
+					if (!pdbDetails.empty())
+						return fmt::format(
+							"(void* -> {}+{:07X} -> {})"sv,
+							_module->name(),
+							address - _module->address(),
+							pdbDetails);
 					return fmt::format(
 						"(void* -> {}+{:07X})"sv,
 						_module->name(),
@@ -412,7 +699,8 @@ namespace Crash::Introspection
 						const auto root = util::adjust_pointer<void>(_ptr, -static_cast<std::ptrdiff_t>(_col->offset));
 						const auto target = util::adjust_pointer<void>(root, static_cast<std::ptrdiff_t>(base->pmd.mDisp));
 						it->second(xInfo, target, 0);
-					}
+					} else
+						logger::info("Found unhandled type:\t{}\t{}"sv, result, base->typeDescriptor->mangled_name());
 				}
 
 				if (!xInfo.empty()) {
@@ -429,9 +717,18 @@ namespace Crash::Introspection
 
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
-				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm::filter),
+				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
+				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
+				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
+				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm<RE::TESForm>::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
+				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
+				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
+				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
+				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
+				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
 			});
 
 			Polymorphic _poly;
@@ -574,7 +871,7 @@ namespace Crash::Introspection
 				}
 			} catch (...) {}
 
-			return make_result<Integer>();
+			return make_result<Integer>(a_value);
 		}
 	}
 
