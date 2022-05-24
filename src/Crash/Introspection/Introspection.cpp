@@ -295,7 +295,19 @@ namespace Crash::Introspection
 		class Integer
 		{
 		public:
-			[[nodiscard]] std::string name() const { return "(size_t)"s; }
+			Integer(std::size_t a_value) noexcept :
+				_value(a_value),
+				name_string(a_value >> 63 ?
+								fmt::format("(size_t) [uint: {} int: {}]"s, _value, static_cast<std::make_signed_t<size_t>>(_value)) :
+                                fmt::format("(size_t) [{}]"s, _value))
+			{
+			}
+
+			[[nodiscard]] std::string name() const { return name_string; }
+
+		private:
+			const std::size_t _value;
+			const std::string name_string;
 		};
 
 		class Pointer
@@ -574,7 +586,7 @@ namespace Crash::Introspection
 				}
 			} catch (...) {}
 
-			return make_result<Integer>();
+			return make_result<Integer>(a_value);
 		}
 	}
 
