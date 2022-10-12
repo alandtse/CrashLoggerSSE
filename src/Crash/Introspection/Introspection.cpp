@@ -48,8 +48,8 @@ namespace Crash::Introspection::SSE
 					const auto flagName = entry.second;
 					if (flag & formFlags)
 						flagString = flagString.empty() ?
-						flagName:
-						flagString.append(" | "sv).append(flagName);
+						                 flagName :
+						                 flagString.append(" | "sv).append(flagName);
 				}
 				a_results.emplace_back(
 					fmt::format(
@@ -160,8 +160,7 @@ namespace Crash::Introspection::SSE
 						"---");
 					TESForm<RE::Actor>::filter(a_results, owner, tab_depth + 1);
 				}
-			}
-			catch (...) {}
+			} catch (...) {}
 			try {
 				const auto target = object->target.get().get();
 				if (target) {
@@ -246,10 +245,57 @@ namespace Crash::Introspection::SSE
 					}
 				}
 			} catch (...) {}
-
-
 		}
 	};
+
+	// Next introspection from Buffout4 by fudgyduff under MIT
+	// https://github.com/clayne/Buffout4/blob/master/src/Crash/Introspection/Introspection.cpp
+	class TESObjectREFR
+	{
+	public:
+		using value_type = RE::TESObjectREFR;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto ref = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto objRef = ref->data.objectReference;
+				if (objRef) {
+					filter_results xResults;
+					TESForm<RE::TESForm>::filter(xResults, objRef);
+
+					if (!xResults.empty()) {
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Object Reference"sv,
+								"",
+								tab_depth),
+							"");
+						for (auto& [key, value] : xResults) {
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}{}"sv,
+									"",
+									tab_depth,
+									key),
+								std::move(value));
+						}
+					}
+				} else {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Object Reference"sv,
+							"",
+							tab_depth),
+						"None");
+				}
+			} catch (...) {}
+		}
+	};
+
 	class NiAVObject
 	{
 	public:
@@ -298,7 +344,6 @@ namespace Crash::Introspection::SSE
 									i),
 								quoted(name));
 					}
-
 				}
 			} catch (...) {}
 
@@ -312,7 +357,7 @@ namespace Crash::Introspection::SSE
 					if (flags.any(flag))
 						flagString = flagString.empty() ?
 						                 flagName :
-                                         flagString.append(" | "sv).append(flagName);
+						                 flagString.append(" | "sv).append(flagName);
 				}
 				a_results.emplace_back(
 					fmt::format(
@@ -336,7 +381,7 @@ namespace Crash::Introspection::SSE
 						quoted(name));
 					const auto objectref = userdata->GetObjectReference();
 					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() :
-                                                                                       ""sv;
+					                                                                   ""sv;
 					if (!filename.empty())
 						a_results.emplace_back(
 							fmt::format(
@@ -359,8 +404,7 @@ namespace Crash::Introspection::SSE
 							"",
 							tab_depth),
 						"-----");
-					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
-
+					TESObjectREFR::filter(a_results, userdata, tab_depth + 1);
 				}
 			} catch (...) {}
 			try {
@@ -477,6 +521,7 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+
 	class BSShaderMaterial
 	{
 	public:
@@ -576,7 +621,7 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
-class hkpWorldObject
+	class hkpWorldObject
 	{
 	public:
 		using value_type = RE::hkpWorldObject;
@@ -610,7 +655,7 @@ class hkpWorldObject
 						quoted(name));
 					const auto objectref = userdata->GetObjectReference();
 					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() :
-                                                                                       ""sv;
+					                                                                   ""sv;
 					if (!filename.empty())
 						a_results.emplace_back(
 							fmt::format(
@@ -624,7 +669,7 @@ class hkpWorldObject
 							"",
 							tab_depth),
 						"-----");
-					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
+					TESObjectREFR::filter(a_results, userdata, tab_depth + 1);
 					if (auto owner = userdata->GetOwner()) {
 						a_results.emplace_back(
 							fmt::format(
@@ -636,9 +681,172 @@ class hkpWorldObject
 					}
 				}
 			} catch (...) {}
-
 		};
 	};
+
+	// Next set of introspection from Buffout4 by fudgyduff under MIT
+	// https://github.com/clayne/Buffout4/blob/master/src/Crash/Introspection/Introspection.cpp
+	namespace BSResource
+	{
+		class LooseFileStreamBase
+		{
+		public:
+			using value_type = RE::BSResource::LooseFileStreamBase;
+
+			static void filter(
+				filter_results& a_results,
+				const void* a_ptr, int tab_depth = 0) noexcept
+			{
+				const auto stream = static_cast<const value_type*>(a_ptr);
+
+				try {
+					const auto dirName = stream->dirName.c_str();
+					if (dirName && dirName[0])
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Directory Name"sv,
+								"",
+								tab_depth),
+							quoted(dirName));
+				} catch (...) {}
+
+				try {
+					const auto fileName = stream->fileName.c_str();
+					if (fileName && fileName[0])
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}File Name"sv,
+								"",
+								tab_depth),
+							quoted(fileName));
+				} catch (...) {}
+
+				try {
+					const auto prefix = stream->prefix.c_str();
+					if (prefix && prefix[0])
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Prefix"sv,
+								"",
+								tab_depth),
+							quoted(prefix));
+				} catch (...) {}
+			}
+		};
+	};
+
+	namespace BSScript
+	{
+		namespace NF_util
+		{
+			class NativeFunctionBase
+			{
+			public:
+				using value_type = RE::BSScript::NF_util::NativeFunctionBase;
+
+				static void filter(
+					filter_results& a_results,
+					const void* a_ptr, int tab_depth = 0) noexcept
+				{
+					const auto function = static_cast<const value_type*>(a_ptr);
+
+					try {
+						const std::string_view name = function->GetName();
+						if (!name.empty())
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}Function"sv,
+									"",
+									tab_depth),
+								quoted(name));
+					} catch (...) {}
+
+					try {
+						const std::string_view objName = function->GetObjectTypeName();
+						if (!objName.empty())
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}Object"sv,
+									"",
+									tab_depth),
+								quoted(objName));
+					} catch (...) {}
+
+					try {
+						const std::string_view stateName = function->GetStateName();
+						if (!stateName.empty())
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}State"sv,
+									"",
+									tab_depth),
+								quoted(stateName));
+
+					} catch (...) {}
+				}
+			};
+		};
+
+		class ObjectTypeInfo
+		{
+		public:
+			using value_type = RE::BSScript::ObjectTypeInfo;
+
+			static void filter(
+				filter_results& a_results,
+				const void* a_ptr, int tab_depth = 0) noexcept
+			{
+				const auto info = static_cast<const value_type*>(a_ptr);
+
+				try {
+					const std::string_view name = info->name;
+					if (!name.empty())
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Name"sv,
+								"",
+								tab_depth),
+							quoted(name));
+				} catch (...) {}
+
+				try {
+					const std::string_view docString = info->docString;
+					if (!docString.empty())
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}DocString"sv,
+								"",
+								tab_depth),
+							quoted(docString));
+				} catch (...) {}
+			}
+		};
+	};
+
+	class NiObjectNET
+	{
+	public:
+		using value_type = RE::NiObjectNET;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto name = object->name.c_str();
+				if (name && name[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+			} catch (...) {}
+		};
+	};
+	// End set of introspection from Buffout4 by fudgyduff under MIT
 
 }
 
@@ -667,7 +875,7 @@ namespace Crash::Introspection
 				_value(a_value),
 				name_string(a_value >> 63 ?
 								fmt::format("(size_t) [uint: {} int: {}]"s, _value, static_cast<std::make_signed_t<size_t>>(_value)) :
-                                fmt::format("(size_t) [{}]"s, _value))
+								fmt::format("(size_t) [{}]"s, _value))
 			{
 			}
 
@@ -817,22 +1025,27 @@ namespace Crash::Introspection
 
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
+				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
-				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
-				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
-				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
-				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
-				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
-				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm<RE::TESForm>::filter),
-				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
-				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
-				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
-				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
-				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
-				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
+				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
+				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
+				std::make_pair(".?AVNativeFunctionBase@NF_util@BSScript@@"sv, SSE::BSScript::NF_util::NativeFunctionBase::filter),
+				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
+				std::make_pair(".?AVNiObjectNET@@"sv, SSE::NiObjectNET::filter),
+				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
+				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
+				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
+				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
+				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
+				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm<RE::TESForm>::filter),
+				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
+				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
+				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
+				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
 			});
 
 			Polymorphic _poly;
