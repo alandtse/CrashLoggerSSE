@@ -684,6 +684,47 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class BShkbAnimationGraph
+	{
+	public:
+		using value_type = RE::BShkbAnimationGraph;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->projectName;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Project Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+			//try {
+			//	auto characterInstance = object->characterInstance;
+			//	hkbCharacter::filter(a_results, &characterInstance, tab_depth + 1);
+			//} catch (...) {}
+			try {
+				auto& holder = object->holder;
+				if (holder) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Holder"sv,
+							""sv,
+							tab_depth),
+						""sv);
+					TESObjectREFR::filter(a_results, holder, tab_depth + 1);
+				}
+			} catch (...) {}
+		};
+	};
+
 	// Next set of introspection from Buffout4 by fudgyduff under MIT
 	// https://github.com/clayne/Buffout4/blob/master/src/Crash/Introspection/Introspection.cpp
 	namespace BSResource
@@ -1027,6 +1068,7 @@ namespace Crash::Introspection
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
+				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
