@@ -1,17 +1,15 @@
 {
   "registries": [
-      {
-          "kind": "git",
-          "repository": "https://gitlab.com/colorglass/vcpkg-colorglass",
-          "baseline": "cd2c26554ae98420f52c6077c0d136a4e5f40c56",
-          "packages": [
-              "articuno",
-              "bethesda-skyrim-scripts",
-              "commonlibsse-ng",
-              "gluino",
-              "script-extender-common",
-              "skse"
-          ]
-      }
+    {
+      "kind": "git",
+      "repository": "https://gitlab.com/colorglass/vcpkg-colorglass",
+      "baseline": "1b279b20c7e0db1c9d549ff3b64e024c01317b55",
+      "packages": [
+        "articuno",
+        "commonlibsse-ng",
+        "gluino",
+        "skse"
+      ]
+    }
   ]
 }

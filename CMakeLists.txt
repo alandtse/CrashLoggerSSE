@@ -86,11 +86,9 @@ find_package(Boost
 	COMPONENTS
 		stacktrace_windbg
 )
-find_package(fmt REQUIRED CONFIG)
 find_package(frozen REQUIRED CONFIG)
 find_package(infoware REQUIRED CONFIG)
 find_package(magic_enum CONFIG REQUIRED)
-find_package(spdlog REQUIRED CONFIG)
 
 find_path(ARTICUNO_INCLUDE_DIRS "articuno/articuno.h")
 
@@ -247,11 +245,9 @@ target_link_libraries(${PROJECT_NAME}
         Boost::stacktrace_windbg
         CommonLibSSE::CommonLibSSE
         Dbghelp.lib
-        fmt::fmt
         frozen::frozen
         infoware
         magic_enum::magic_enum
-        spdlog::spdlog
         )
 
 target_precompile_headers(${PROJECT_NAME}

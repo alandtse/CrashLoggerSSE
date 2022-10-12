@@ -1,9 +1,5 @@
 #pragma once
 
-#include <atlbase.h>
-#include <dia2.h>
-#include <diacreate.h>
-
 namespace Crash
 {
 	namespace PDB

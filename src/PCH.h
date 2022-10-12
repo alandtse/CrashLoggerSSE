@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atlbase.h>
+#include <dia2.h>
+#include <diacreate.h>
 #include <cassert>
 #include <cctype>
 #include <cerrno>
