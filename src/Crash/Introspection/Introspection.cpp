@@ -136,6 +136,47 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class ActorKnowledge
+	{
+	public:
+		using value_type = RE::ActorKnowledge;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			if (!object)
+				return;
+			try {
+				const auto owner = object->owner.get().get();
+				if (owner) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Owner"sv,
+							"",
+							tab_depth),
+						"---");
+					TESForm<RE::Actor>::filter(a_results, owner, tab_depth + 1);
+				}
+			}
+			catch (...) {}
+			try {
+				const auto target = object->target.get().get();
+				if (target) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Target"sv,
+							"",
+							tab_depth),
+						"---");
+					TESForm<RE::Actor>::filter(a_results, target, tab_depth + 1);
+				}
+			} catch (...) {}
+		}
+	};
+
 	class BSShaderProperty
 	{
 	public:
@@ -262,6 +303,28 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 
 			try {
+				const auto flags = object->GetFlags();
+				std::string flagString = "";
+				constexpr auto flagEntries = magic_enum::enum_entries<RE::NiAVObject::Flag>();
+				for (const auto& entry : flagEntries) {
+					const auto flag = entry.first;
+					const auto flagName = entry.second;
+					if (flags.any(flag))
+						flagString = flagString.empty() ?
+						                 flagName :
+                                         flagString.append(" | "sv).append(flagName);
+				}
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Flags"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{}"sv,
+						flagString));
+			} catch (...) {}
+
+			try {
 				const auto userdata = object->GetUserData();
 				if (userdata) {
 					const auto name = userdata->GetDisplayFullName();
@@ -281,13 +344,6 @@ namespace Crash::Introspection::SSE
 								"",
 								tab_depth),
 							quoted(filename));
-					a_results.emplace_back(
-						fmt::format(
-							"{:\t>{}}Checking User Data"sv,
-							"",
-							tab_depth),
-						"-----");
-					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
 					if (auto owner = userdata->GetOwner()) {
 						a_results.emplace_back(
 							fmt::format(
@@ -297,6 +353,14 @@ namespace Crash::Introspection::SSE
 							"-----");
 						TESForm<RE::TESForm>::filter(a_results, owner, tab_depth + 1);
 					}
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking User Data"sv,
+							"",
+							tab_depth),
+						"-----");
+					TESForm<RE::TESObjectREFR>::filter(a_results, userdata, tab_depth + 1);
+
 				}
 			} catch (...) {}
 			try {
@@ -312,6 +376,42 @@ namespace Crash::Introspection::SSE
 							"{}"sv, parentIndex));
 					filter(a_results, parent, tab_depth + 1);
 				}
+			} catch (...) {}
+		}
+	};
+
+	class NiTexture
+	{
+	public:
+		using value_type = RE::NiTexture;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto name = object ? object->name.c_str() : ""sv;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+			} catch (...) {}
+
+			try {
+				const auto name = object->GetRTTI() ? object->GetRTTI()->GetName() : ""sv;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}RTTIName"sv,
+							"",
+							tab_depth),
+						quoted(name));
 			} catch (...) {}
 		}
 	};
@@ -717,11 +817,15 @@ namespace Crash::Introspection
 
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
+				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
+				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
+				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
 				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm<RE::TESForm>::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
+				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
 				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
