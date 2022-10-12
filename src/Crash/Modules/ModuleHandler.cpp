@@ -45,7 +45,7 @@
 #include <Windows.h>
 
 #include <Psapi.h>
-#include <Crash/PDB/PdbHandler.h>
+#include "Crash/PDB/PdbHandler.h"
 
 #undef max
 #undef min
