@@ -169,7 +169,7 @@ namespace Crash
 			}
 			if (symcacheValid)
 				mbstowcs(wszPath, fmt::format("cache*{}"s, symcache).c_str(), sizeof(wszPath) / sizeof(wszPath[0]));
-			logger::info("Attempting to find pdb for {}+{:07X}{}", a_name, a_offset);
+			logger::info("Attempting to find pdb for {}+{:07X}", a_name, a_offset);
 			hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
 			if (FAILED(hr)) {
 				auto error = print_hr_failure(hr);
