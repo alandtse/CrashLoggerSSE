@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    if: github.repository == 'alandtse/MergeMapper'
+    if: github.repository_owner == 'alandtse'
     runs-on: ubuntu-latest
     steps:
       - name: Setup Dotnet
