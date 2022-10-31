@@ -889,6 +889,70 @@ namespace Crash::Introspection::SSE
 	};
 	// End set of introspection from Buffout4 by fudgyduff under MIT
 
+	class TESRegionDataSound
+	{
+	public:
+		using value_type = RE::TESRegionDataSound;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto name = object->music ? object->music->GetName() : "";
+				if (name && name[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Music Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+			} catch (...) {}
+			try {
+				const auto& sounds = object->sounds;			
+				for (const auto& soundItem : sounds) {
+					if (soundItem) {
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Sound Chance"sv,
+								"",
+								tab_depth),
+							fmt::format(
+								"{:f}"sv,
+								soundItem->chance));
+						if (soundItem->sound) {
+							TESForm<RE::BGSSoundDescriptorForm>::filter(a_results, soundItem->sound, tab_depth + 1);
+						}
+						const auto flags = soundItem->flags;
+							using recordFlags = value_type::Sound::Flag;
+							std::string flagString = "";
+							constexpr auto flagEntries = magic_enum::enum_entries<recordFlags>();
+							for (const auto& entry : flagEntries) {
+								const auto flag = entry.first;
+								const auto flagName = entry.second;
+								if (flag & flags)
+									flagString = flagString.empty() ?
+													 flagName :
+													 flagString.append(" | "sv).append(flagName);
+							}
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}Flags"sv,
+									"",
+									tab_depth),
+								fmt::format(
+									"0x{:08X} {}"sv,
+									flags.underlying(),
+									flagString));
+						}
+				}
+			} catch (...) {}
+
+		};
+
+	};
 }
 
 namespace Crash::Introspection
@@ -1088,6 +1152,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
+				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
 			});
 
 			Polymorphic _poly;
