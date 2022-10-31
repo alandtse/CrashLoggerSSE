@@ -3,9 +3,12 @@ cmake_minimum_required(VERSION 3.22)
 # #######################################################################################################################
 # # Define project
 # #######################################################################################################################
+set(NAME "CrashLogger")
+set(VERSION 1.0.0.5)
+
 project(
-        CrashLogger
-        VERSION 1.0.0.5
+        ${NAME}
+	VERSION ${VERSION}
         DESCRIPTION "SKSE/SKSEVR plugin that generates crash logs when the game Just Works™."
         LANGUAGES CXX)
 set(PROJECT_FRIENDLY_NAME "CrashLogger NG")
