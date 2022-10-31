@@ -1,0 +1,5 @@
+debug:
+  logLevel: info
+  flushLevel: trace
+  waitForDebugger: false #enable if using VisualStudio to debug CrashLogger; Set false otherwise because crashlogger will not produce a crash until the debugger is detected
+  symcache: c:\symcache #local symbol cache directory
