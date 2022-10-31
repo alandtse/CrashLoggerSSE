@@ -1,0 +1,51 @@
+{
+  "branches": [
+    "main"
+  ],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    [
+      "@google/semantic-release-replace-plugin",
+      {
+        "replacements": [
+          {
+            "files": ["CMakeLists.txt"],
+            "from": "set\\(VERSION .*\\)",
+            "to": "set(VERSION ${nextRelease.version})",
+            "results": [
+              {
+                "file": "CMakeLists.txt",
+                "hasChanged": true,
+                "numMatches": 1,
+                "numReplacements": 1
+              }
+            ],
+            "countMatches": true
+          },
+          {
+            "files": ["vcpkg.json"],
+            "from": "\"version-string\": \".*\"",
+            "to": "\"version-string\": \"${nextRelease.version}\"",
+            "results": [
+              {
+                "file": "vcpkg.json",
+                "hasChanged": true,
+                "numMatches": 1,
+                "numReplacements": 1
+              }
+            ],
+            "countMatches": true
+          }
+        ]
+      }
+    ],
+    "@semantic-release/release-notes-generator",
+    ["@semantic-release/github"],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md", "CMakeLists.txt", "vcpkg.json"]
+      }
+    ]
+  ]
+}
