@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
-########################################################################################################################
-## Define project
-########################################################################################################################
+
+# #######################################################################################################################
+# # Define project
+# #######################################################################################################################
 project(
         CrashLogger
         VERSION 1.0.0.5
@@ -10,7 +11,6 @@ project(
 set(PROJECT_FRIENDLY_NAME "CrashLogger NG")
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 
 source_group(TREE "." FILES ${SOURCE_FILES})
 
@@ -26,7 +26,7 @@ configure_file(
 
 set(headers
         src/Config.h
-        )
+)
 
 set(sources
         src/Config.cpp
@@ -43,48 +43,48 @@ set(sources
         src/PCH.cpp
         src/PCH.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc
-        )
-
+)
 
 source_group(
         TREE ${CMAKE_CURRENT_SOURCE_DIR}
         FILES
         ${headers}
         ${sources}
-        #${tests}
-        )
 
-########################################################################################################################
-## Add CMake features
-########################################################################################################################
+        # ${tests}
+)
+
+# #######################################################################################################################
+# # Add CMake features
+# #######################################################################################################################
 include(CheckIPOSupported)
 include(GNUInstallDirs)
 include(GoogleTest)
 
-#########################################################################################################################
-### Build options
-#########################################################################################################################
+# ########################################################################################################################
+# ## Build options
+# ########################################################################################################################
 message("Options:")
 option(BUILD_TESTS "Build unit tests." OFF)
 message("\tTests: ${BUILD_TESTS}")
 
-########################################################################################################################
-## Add CMake features
-########################################################################################################################
+# #######################################################################################################################
+# # Add CMake features
+# #######################################################################################################################
 include(CheckIPOSupported)
 include(GNUInstallDirs)
 
-########################################################################################################################
-## Find dependencies
-########################################################################################################################
+# #######################################################################################################################
+# # Find dependencies
+# #######################################################################################################################
 find_package(CommonLibSSE REQUIRED)
 find_package(binary_io REQUIRED CONFIG)
 find_package(ryml CONFIG REQUIRED)
 find_package(Boost
-	MODULE
-	REQUIRED
-	COMPONENTS
-		stacktrace_windbg
+        MODULE
+        REQUIRED
+        COMPONENTS
+        stacktrace_windbg
 )
 find_package(frozen REQUIRED CONFIG)
 find_package(infoware REQUIRED CONFIG)
@@ -107,93 +107,94 @@ get_filename_component(VS_DIA_INC_PATH "${VS_PATH}/DIA SDK/include" ABSOLUTE CAC
 # (although the friendly name of that is C++ profiling tools).  The toolset is the most likely target.
 set(PROGRAMFILES_X86 "ProgramFiles(x86)")
 execute_process(
-  COMMAND "$ENV{${PROGRAMFILES_X86}}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-  OUTPUT_VARIABLE VSWHERE_LATEST
-  ERROR_QUIET
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
+        COMMAND "$ENV{${PROGRAMFILES_X86}}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        OUTPUT_VARIABLE VSWHERE_LATEST
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 
-find_path(DIASDK_INCLUDE_DIR    # Set variable DIASDK_INCLUDE_DIR
-          dia2.h                # Find a path with dia2.h
-          HINTS "${VS_DIA_INC_PATH}"
-          HINTS "${VSWHERE_LATEST}/DIA SDK/include"
-          DOC "path to DIA SDK header files"
-          )
-
+find_path(DIASDK_INCLUDE_DIR # Set variable DIASDK_INCLUDE_DIR
+        dia2.h # Find a path with dia2.h
+        HINTS "${VS_DIA_INC_PATH}"
+        HINTS "${VSWHERE_LATEST}/DIA SDK/include"
+        DOC "path to DIA SDK header files"
+)
 
 # VS 2017
-if (CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
-  if (CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 )
-  elseif (CMAKE_GENERATOR_PLATFORM STREQUAL "ARM")
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm )
-  else (CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib )
-  endif (CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-else (CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
-  if ((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR ("${DXC_BUILD_ARCH}" STREQUAL "x64"))
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 )
-  elseif ((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM") OR ("${DXC_BUILD_ARCH}" STREQUAL "ARM"))
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm )
-  elseif ((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64.*") OR ("${DXC_BUILD_ARCH}" MATCHES "ARM64.*"))
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm64 )
-  else ((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR ("${DXC_BUILD_ARCH}" STREQUAL "x64"))
-    find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib )
-  endif((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR ("${DXC_BUILD_ARCH}" STREQUAL "x64"))
-endif (CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
+if(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
+        if(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64)
+        elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM")
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
+        else(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
+        endif(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+else(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
+        if((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64)
+        elseif((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM") OR("${DXC_BUILD_ARCH}" STREQUAL "ARM"))
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
+        elseif((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64.*") OR("${DXC_BUILD_ARCH}" MATCHES "ARM64.*"))
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm64)
+        else((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
+                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
+        endif((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
+endif(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
 
 set(DIASDK_LIBRARIES ${DIASDK_GUIDS_LIBRARY})
 set(DIASDK_INCLUDE_DIRS ${DIASDK_INCLUDE_DIR})
 
 include(FindPackageHandleStandardArgs)
+
 # handle the QUIETLY and REQUIRED arguments and set DIASDK_FOUND to TRUE
 # if all listed variables are TRUE
-find_package_handle_standard_args(DiaSDK  DEFAULT_MSG
-                                  DIASDK_LIBRARIES DIASDK_INCLUDE_DIR)
+find_package_handle_standard_args(DiaSDK DEFAULT_MSG
+        DIASDK_LIBRARIES DIASDK_INCLUDE_DIR)
 
 mark_as_advanced(DIASDK_INCLUDE_DIRS DIASDK_LIBRARIES)
 
-if (BUILD_TESTS)
-    find_package(Catch2 CONFIG REQUIRED)
-endif ()
+if(BUILD_TESTS)
+        find_package(Catch2 CONFIG REQUIRED)
+endif()
 
-########################################################################################################################
-## Configuration for all targets
-########################################################################################################################
-if (MSVC)
-    add_compile_definitions(
-            UNICODE
-            _UNICODE
-            NOMINMAX
-            _AMD64_
-            WIN32_LEAN_AND_MEAN
-            _CRT_USE_BUILTIN_OFFSETOF # Fixes MSVC being non-compliant with offsetof behavior by default.
-			ENABLE_SKYRIM_AE
-			ENABLE_SKYRIM_VR
-			ENABLE_SKYRIM_SE
-    )
-
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+# #######################################################################################################################
+# # Configuration for all targets
+# #######################################################################################################################
+if(MSVC)
         add_compile_definitions(
-                __cpp_lib_char8_t
-                __cpp_consteval
-                __cpp_lib_format)
-    else ()
-        add_compile_options(/Zc:preprocessor)
-    endif ()
-endif ()
+                UNICODE
+                _UNICODE
+                NOMINMAX
+                _AMD64_
+                WIN32_LEAN_AND_MEAN
+                _CRT_USE_BUILTIN_OFFSETOF # Fixes MSVC being non-compliant with offsetof behavior by default.
+                ENABLE_SKYRIM_AE
+                ENABLE_SKYRIM_VR
+                ENABLE_SKYRIM_SE
+        )
+
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+                add_compile_definitions(
+                        __cpp_lib_char8_t
+                        __cpp_consteval
+                        __cpp_lib_format)
+        else()
+                add_compile_options(/Zc:preprocessor)
+        endif()
+endif()
 
 check_ipo_supported(RESULT USE_IPO OUTPUT IPO_OUTPUT)
-if (USE_IPO)
-    message("Enabling interprocedural optimizations.")
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-else ()
-    message("Interprocedural optimizations are not supported.")
-endif ()
 
-########################################################################################################################
-## Configure target DLL
-########################################################################################################################
+if(USE_IPO)
+        message("Enabling interprocedural optimizations.")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+else()
+        message("Interprocedural optimizations are not supported.")
+endif()
+
+# #######################################################################################################################
+# # Configure target DLL
+# #######################################################################################################################
 add_library(${PROJECT_NAME} SHARED
         ${headers}
         ${sources})
@@ -209,7 +210,7 @@ target_compile_options(${PROJECT_NAME}
         /EHa # Exception handling model
         /utf-8 # Set Source and Executable character sets to UTF-8
         /wd4117 # macro with reserved name; silences warning re" _CRT_USE_BUILTIN_OFFSETOF, needed for standard behavior
-        )
+)
 
 target_compile_options(${PROJECT_NAME}
         PUBLIC
@@ -221,7 +222,7 @@ target_include_directories(${PROJECT_NAME}
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/src>
         $<INSTALL_INTERFACE:src>
         ${ARTICUNO_INCLUDE_DIRS}
-        )
+)
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
@@ -233,11 +234,11 @@ if(DIASDK_LIBRARIES)
                 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 ${DIASDK_INCLUDE_DIRS}
                 ${DIASDK_INCLUDE_DIRS}/../lib
-                )
+        )
         target_link_libraries(${PROJECT_NAME}
                 PUBLIC
                 ${DIASDK_INCLUDE_DIRS}/../lib/amd64/diaguids.lib
-                )
+        )
 endif()
 
 target_link_libraries(${PROJECT_NAME}
@@ -248,7 +249,7 @@ target_link_libraries(${PROJECT_NAME}
         frozen::frozen
         infoware
         magic_enum::magic_enum
-        )
+)
 
 target_precompile_headers(${PROJECT_NAME}
         PRIVATE
@@ -336,32 +337,32 @@ ADD_CUSTOM_COMMAND(
         WORKING_DIRECTORY ${ZIP_DIR}
 )
 
-########################################################################################################################
-## Configure unit tests
-########################################################################################################################
-if (BUILD_TESTS)
-    include(CTest)
-    include(Catch)
+# #######################################################################################################################
+# # Configure unit tests
+# #######################################################################################################################
+if(BUILD_TESTS)
+        include(CTest)
+        include(Catch)
 
-    add_executable(
-            ${PROJECT_NAME}Tests
-            ${headers}
-            ${tests})
+        add_executable(
+                ${PROJECT_NAME}Tests
+                ${headers}
+                ${tests})
 
-    target_compile_features(${PROJECT_NAME}Tests
-            PUBLIC
-            cxx_std_23)
+        target_compile_features(${PROJECT_NAME}Tests
+                PUBLIC
+                cxx_std_23)
 
-    target_link_libraries(
-            ${PROJECT_NAME}Tests
-            PRIVATE
-            ${PROJECT_NAME}
-            Catch2::Catch2WithMain)
+        target_link_libraries(
+                ${PROJECT_NAME}Tests
+                PRIVATE
+                ${PROJECT_NAME}
+                Catch2::Catch2WithMain)
 
-    target_precompile_headers(${PROJECT_NAME}Tests
-            PRIVATE
-            src/PCH.h)
+        target_precompile_headers(${PROJECT_NAME}Tests
+                PRIVATE
+                src/PCH.h)
 
-    catch_discover_tests(${PROJECT_NAME}Tests)
-    add_test(NAME ${PROJECT_NAME}Tests COMMAND ${PROJECT_NAME}Tests)
-endif ()
+        catch_discover_tests(${PROJECT_NAME}Tests)
+        add_test(NAME ${PROJECT_NAME}Tests COMMAND ${PROJECT_NAME}Tests)
+endif()
