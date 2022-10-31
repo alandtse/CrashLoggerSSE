@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 # # Define project
 # #######################################################################################################################
 set(NAME "CrashLogger")
-set(VERSION 1.0.0.5)
+set(VERSION 1.1.0)
 
 project(
         ${NAME}
