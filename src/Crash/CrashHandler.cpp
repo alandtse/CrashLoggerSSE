@@ -48,6 +48,8 @@
 
 #include "PluginInfo.h"
 #include <Config.h>
+#include <openvr.h>
+using namespace vr;
 
 #undef max
 #undef min
@@ -423,6 +425,55 @@ namespace Crash
 				gibibyte(mem.physical_total - mem.physical_available), gibibyte(mem.physical_total));
 		}
 
+		void print_vrinfo(spdlog::logger& a_log)
+		{
+			if (REL::Module::IsVR() && VR_IsHmdPresent() && VR_IsRuntimeInstalled()) {
+				a_log.critical("VR SPECS:"sv);
+				// Loading the SteamVR Runtime
+				EVRInitError eError = VRInitError_None;
+				auto HMD = VR_Init(&eError, VRApplication_Background);
+
+				if (eError != VRInitError_None) {
+					a_log.critical("\tUnable to initialize VR"sv);
+					return;
+				}
+				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListString{
+					{ "Model", Prop_ModelNumber_String },
+					{ "Manufacturer", Prop_ManufacturerName_String },
+					{ "Tracking System", Prop_TrackingSystemName_String },
+					{ "Hardware Revision", Prop_HardwareRevision_String },
+					{ "Driver Version", Prop_DriverVersion_String },
+					{ "Render Model", Prop_RenderModelName_String },
+					{ "Additional Data", Prop_AdditionalSystemReportData_String },
+					{ "Expected Controller Type", Prop_ExpectedControllerType_String },
+					{ "Controller Type", Prop_ControllerType_String }
+				};
+				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListFloat{
+					//{ "Battery %", Prop_DeviceBatteryPercentage_Float },
+					//{ "Power Usage", Prop_DevicePowerUsage_Float }, // maybe be future value
+					{ "Display Frequency", Prop_DisplayFrequency_Float }
+				};
+				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListBool{
+					{ "Wireless", Prop_DeviceIsWireless_Bool },
+					{ "Charging", Prop_DeviceIsCharging_Bool },
+					{ "Update Available", Prop_Firmware_UpdateAvailable_Bool },
+				};
+				char propValue[k_unMaxPropertyStringSize];
+				for (const auto& entry : propListString) {
+					HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second, propValue, std::size(propValue));
+					a_log.critical("\t{}: {}"sv, entry.first, propValue);
+				}
+				for (const auto& entry : propListFloat) {
+					const auto propValue = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
+					a_log.critical("\t{}: {}"sv, entry.first, propValue);
+				}
+				for (const auto& entry : propListBool) {
+					const auto propValue = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
+					a_log.critical("\t{}: {}"sv, entry.first, propValue);
+				}
+			}
+		}
+
 #undef SETTING_CASE
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
@@ -462,6 +513,7 @@ namespace Crash
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
+				print([&]() { print_vrinfo(*log); }, "print_vrinfo");
 
 				print(
 					[&]() {

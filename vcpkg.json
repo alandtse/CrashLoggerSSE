@@ -21,6 +21,7 @@
           ]
         },
         "magic-enum",
+        "openvr",
         "rsm-binary-io"
       ]
     },

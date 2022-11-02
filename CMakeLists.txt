@@ -96,6 +96,9 @@ find_package(frozen REQUIRED CONFIG)
 find_package(infoware REQUIRED CONFIG)
 find_package(magic_enum CONFIG REQUIRED)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(OpenVR REQUIRED)
+
 find_path(ARTICUNO_INCLUDE_DIRS "articuno/articuno.h")
 
 # https://github.com/microsoft/DirectXShaderCompiler/blob/main/cmake/modules/FindDiaSDK.cmake
@@ -255,6 +258,7 @@ target_link_libraries(${PROJECT_NAME}
         frozen::frozen
         infoware
         magic_enum::magic_enum
+        OpenVR::OpenVR
 )
 
 target_precompile_headers(${PROJECT_NAME}
