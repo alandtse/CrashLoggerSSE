@@ -912,7 +912,7 @@ namespace Crash::Introspection::SSE
 						quoted(name));
 			} catch (...) {}
 			try {
-				const auto& sounds = object->sounds;			
+				const auto& sounds = object->sounds;
 				for (const auto& soundItem : sounds) {
 					if (soundItem) {
 						a_results.emplace_back(
@@ -927,32 +927,110 @@ namespace Crash::Introspection::SSE
 							TESForm<RE::BGSSoundDescriptorForm>::filter(a_results, soundItem->sound, tab_depth + 1);
 						}
 						const auto flags = soundItem->flags;
-							using recordFlags = value_type::Sound::Flag;
-							std::string flagString = "";
-							constexpr auto flagEntries = magic_enum::enum_entries<recordFlags>();
-							for (const auto& entry : flagEntries) {
-								const auto flag = entry.first;
-								const auto flagName = entry.second;
-								if (flag & flags)
-									flagString = flagString.empty() ?
-													 flagName :
-													 flagString.append(" | "sv).append(flagName);
-							}
-							a_results.emplace_back(
-								fmt::format(
-									"{:\t>{}}Flags"sv,
-									"",
-									tab_depth),
-								fmt::format(
-									"0x{:08X} {}"sv,
-									flags.underlying(),
-									flagString));
+						using recordFlags = value_type::Sound::Flag;
+						std::string flagString = "";
+						constexpr auto flagEntries = magic_enum::enum_entries<recordFlags>();
+						for (const auto& entry : flagEntries) {
+							const auto flag = entry.first;
+							const auto flagName = entry.second;
+							if (flag & flags)
+								flagString = flagString.empty() ?
+								                 flagName :
+								                 flagString.append(" | "sv).append(flagName);
 						}
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}Flags"sv,
+								"",
+								tab_depth),
+							fmt::format(
+								"0x{:08X} {}"sv,
+								flags.underlying(),
+								flagString));
+					}
 				}
 			} catch (...) {}
-
 		};
+	};
 
+	class TESQuest
+	{
+	public:
+		using value_type = RE::TESQuest;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Active Quest"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{}",
+						object->IsActive()));
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Current Stage"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{}",
+						object->GetCurrentStageID()));
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Type"sv,
+						"",
+						tab_depth),
+					magic_enum::enum_name(object->GetType()));
+			} catch (...) {}
+		};
+	};
+
+	class ExtraTextDisplayData
+	{
+	public:
+		using value_type = RE::ExtraTextDisplayData;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto name = object->displayName.c_str();
+				if (name && name[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Display Name"sv,
+							"",
+							tab_depth),
+						quoted(name));
+			} catch (...) {}
+			try {
+				const auto& displayNameText = object->displayNameText;
+				if (displayNameText)
+					TESForm<RE::BGSMessage>::filter(a_results, displayNameText, tab_depth + 1);
+			} catch (...) {}
+			try {
+				const auto quest = object->ownerQuest;
+				if (quest) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Owner Quest"sv,
+							""sv,
+							tab_depth),
+						""sv);
+					TESQuest::filter(a_results, quest, tab_depth + 1);
+				}
+			} catch (...) {}
+		};
 	};
 }
 
@@ -1154,6 +1232,8 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
 				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
+				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
+				std::make_pair(".?AVTESQuest@@"sv, SSE::TESQuest::filter),
 			});
 
 			Polymorphic _poly;
