@@ -706,10 +706,11 @@ namespace Crash::Introspection::SSE
 							tab_depth),
 						quoted(name.data()));
 			} catch (...) {}
-			//try {
-			//	auto characterInstance = object->characterInstance;
-			//	hkbCharacter::filter(a_results, &characterInstance, tab_depth + 1);
-			//} catch (...) {}
+			try {
+				auto characterInstance = &(object->characterInstance);
+				if (characterInstance)
+					hkbCharacter::filter(a_results, characterInstance, tab_depth + 1);
+			} catch (...) {}
 			try {
 				auto& holder = object->holder;
 				if (holder) {
