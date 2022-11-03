@@ -1215,6 +1215,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
+				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
 				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
@@ -1231,9 +1232,8 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
-				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
-				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVTESQuest@@"sv, SSE::TESQuest::filter),
+				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
 			});
 
 			Polymorphic _poly;
