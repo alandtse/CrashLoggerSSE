@@ -105,7 +105,9 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}FormType"sv,
 							"",
 							tab_depth),
-						formTypeName);
+						fmt::format(
+							"{} ({:02})"sv,
+							formTypeName, std::to_underlying(formType)));
 			} catch (...) {}
 		}
 	};
@@ -220,14 +222,17 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 			try {
 				const auto formType = form->GetType();
-				a_results.emplace_back(
-					fmt::format(
-						"{:\t>{}}NiPropertyType"sv,
-						"",
-						tab_depth),
-					fmt::format(
-						"{:02}"sv,
-						formType));
+				const auto formTypeName = magic_enum::enum_name(formType);
+				if (!formTypeName.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}NiPropertyType"sv,
+							"",
+							tab_depth),
+						fmt::format(
+							"{} ({:02})"sv,
+							formTypeName,
+							std::to_underlying(formType)));
 			} catch (...) {}
 			try {
 				for (auto i = 0; i < form->GetExtraDataSize(); i++) {
