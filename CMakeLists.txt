@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.21)
 
 # #######################################################################################################################
 # # Define project
@@ -8,7 +8,7 @@ set(VERSION 1.2.0)
 
 project(
         ${NAME}
-	VERSION ${VERSION}
+        VERSION ${VERSION}
         DESCRIPTION "SKSE/SKSEVR plugin that generates crash logs when the game Just Works™."
         LANGUAGES CXX)
 set(PROJECT_FRIENDLY_NAME "CrashLogger NG")
@@ -18,16 +18,9 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
 
-source_group(TREE "." FILES ${SOURCE_FILES})
-
 configure_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.rc.in
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc
-        @ONLY)
-
-configure_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PluginInfo.h.in
-        ${CMAKE_CURRENT_BINARY_DIR}/src/PluginInfo.h
         @ONLY)
 
 set(headers
@@ -60,13 +53,6 @@ source_group(
         # ${tests}
 )
 
-# #######################################################################################################################
-# # Add CMake features
-# #######################################################################################################################
-include(CheckIPOSupported)
-include(GNUInstallDirs)
-include(GoogleTest)
-
 # ########################################################################################################################
 # ## Build options
 # ########################################################################################################################
@@ -83,8 +69,7 @@ include(GNUInstallDirs)
 # #######################################################################################################################
 # # Find dependencies
 # #######################################################################################################################
-find_package(CommonLibSSE REQUIRED)
-find_package(binary_io REQUIRED CONFIG)
+find_package(CommonLibSSE CONFIG REQUIRED)
 find_package(ryml CONFIG REQUIRED)
 find_package(Boost
         MODULE
@@ -169,73 +154,43 @@ endif()
 # #######################################################################################################################
 # # Configuration for all targets
 # #######################################################################################################################
-if(MSVC)
+if(WIN32)
         add_compile_definitions(
                 UNICODE
                 _UNICODE
                 NOMINMAX
                 _AMD64_
-                WIN32_LEAN_AND_MEAN
-                _CRT_USE_BUILTIN_OFFSETOF # Fixes MSVC being non-compliant with offsetof behavior by default.
-                ENABLE_SKYRIM_AE
-                ENABLE_SKYRIM_VR
-                ENABLE_SKYRIM_SE
-        )
+                WIN32_LEAN_AND_MEAN)
+endif()
 
-        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-                add_compile_definitions(
-                        __cpp_lib_char8_t
-                        __cpp_consteval
-                        __cpp_lib_format)
-        else()
-                add_compile_options(/Zc:preprocessor)
-        endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        add_compile_definitions(
+                __cpp_lib_char8_t
+                __cpp_consteval
+                __cpp_lib_format)
 endif()
 
 check_ipo_supported(RESULT USE_IPO OUTPUT IPO_OUTPUT)
 
 if(USE_IPO)
-        message("Enabling interprocedural optimizations.")
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 else()
-        message("Interprocedural optimizations are not supported.")
+        message(WARNING "Interprocedural optimizations are not supported.")
 endif()
 
 # #######################################################################################################################
 # # Configure target DLL
 # #######################################################################################################################
-add_library(${PROJECT_NAME} SHARED
-        ${headers}
-        ${sources})
+add_commonlibsse_plugin(${PROJECT_NAME} SOURCES ${headers} ${sources})
 
 add_library("${PROJECT_NAME}::${PROJECT_NAME}" ALIAS "${PROJECT_NAME}")
-
-target_compile_features(${PROJECT_NAME}
-        PUBLIC
-        cxx_std_23)
-
-target_compile_options(${PROJECT_NAME}
-        PRIVATE
-        /EHa # Exception handling model
-        /utf-8 # Set Source and Executable character sets to UTF-8
-        /wd4117 # macro with reserved name; silences warning re" _CRT_USE_BUILTIN_OFFSETOF, needed for standard behavior
-)
-
-target_compile_options(${PROJECT_NAME}
-        PUBLIC
-        "$<$<CONFIG:RELEASE>:/O2;/Ob2;/Gregcall;/Gw>")
 
 target_include_directories(${PROJECT_NAME}
         PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/src>
         $<INSTALL_INTERFACE:src>
-        ${ARTICUNO_INCLUDE_DIRS}
-)
-
-target_link_libraries(${PROJECT_NAME}
-        PRIVATE
-        ryml::ryml)
+        ${ARTICUNO_INCLUDE_DIRS})
 
 if(DIASDK_LIBRARIES)
         target_include_directories(${PROJECT_NAME}
@@ -250,17 +205,20 @@ if(DIASDK_LIBRARIES)
         )
 endif()
 
-target_link_libraries(${PROJECT_NAME}
+target_include_directories(${PROJECT_NAME}
         PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+
+target_link_libraries(${PROJECT_NAME}
+        PRIVATE
+        ryml::ryml
         Boost::stacktrace_windbg
-        CommonLibSSE::CommonLibSSE
         Dbghelp.lib
         frozen::frozen
         infoware
         magic_enum::magic_enum
         OpenVR::OpenVR
 )
-
 target_precompile_headers(${PROJECT_NAME}
         PRIVATE
         src/PCH.h)
@@ -358,10 +316,6 @@ if(BUILD_TESTS)
                 ${PROJECT_NAME}Tests
                 ${headers}
                 ${tests})
-
-        target_compile_features(${PROJECT_NAME}Tests
-                PUBLIC
-                cxx_std_23)
 
         target_link_libraries(
                 ${PROJECT_NAME}Tests

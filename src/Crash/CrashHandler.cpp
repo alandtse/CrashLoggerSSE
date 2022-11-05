@@ -46,7 +46,6 @@
 #include <Windows.h>
 #include <winternl.h>
 
-#include "PluginInfo.h"
 #include <Config.h>
 #include <openvr.h>
 using namespace vr;
@@ -508,7 +507,7 @@ namespace Crash
 				const auto runtimeVer = REL::Module::get().version();
 				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1],
 					runtimeVer[2]);
-				log->critical("CrashLoggerSSE v{}"sv, CrashLogger::PluginVersion.string());
+				log->critical("CrashLoggerSSE v{}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string());
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
