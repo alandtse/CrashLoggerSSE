@@ -18,6 +18,9 @@ namespace Crash
 
 			[[nodiscard]] std::string frame_info(const boost::stacktrace::frame& a_frame) const;
 
+			// Return std::string of assembly for a_ptr
+			[[nodiscard]] std::string assembly(const void* a_ptr) const;
+
 			[[nodiscard]] bool in_range(const void* a_ptr) const noexcept
 			{
 				const auto ptr = reinterpret_cast<const std::byte*>(a_ptr);

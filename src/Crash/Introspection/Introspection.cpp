@@ -1093,16 +1093,19 @@ namespace Crash::Introspection
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
 					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
+					const auto assembly = _module->assembly((const void*)address);
 					if (!pdbDetails.empty())
 						return fmt::format(
-							"(void* -> {}+{:07X} -> {})"sv,
+							"(void* -> {}+{:07X}\t{} | {})"sv,
 							_module->name(),
 							address - _module->address(),
+							assembly,
 							pdbDetails);
 					return fmt::format(
-						"(void* -> {}+{:07X})"sv,
+						"(void* -> {}+{:07X}\t{})"sv,
 						_module->name(),
-						address - _module->address());
+						address - _module->address(),
+						assembly);
 				} else {
 					return "(void*)"s;
 				}

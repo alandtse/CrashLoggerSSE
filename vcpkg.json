@@ -22,7 +22,9 @@
         },
         "magic-enum",
         "openvr",
-        "rsm-binary-io"
+        "rsm-binary-io",
+        "zycore",
+        "zydis"
       ]
     },
     "tests": {
@@ -42,7 +44,7 @@
   "default-features": [
     "plugin"
   ],
-  "builtin-baseline": "57d3194e702a2959e86a6748999ad71fc24f7922",
+  "builtin-baseline": "68ad399d5596a540e8a12173c3d189cbc0f82be8",
   "overrides": [
     {
       "name": "fmt",

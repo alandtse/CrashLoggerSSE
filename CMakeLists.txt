@@ -80,7 +80,8 @@ find_package(Boost
 find_package(frozen REQUIRED CONFIG)
 find_package(infoware REQUIRED CONFIG)
 find_package(magic_enum CONFIG REQUIRED)
-
+find_package(zycore CONFIG REQUIRED)
+find_package(zydis CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(OpenVR REQUIRED)
 
@@ -218,6 +219,7 @@ target_link_libraries(${PROJECT_NAME}
         infoware
         magic_enum::magic_enum
         OpenVR::OpenVR
+        Zydis::Zydis
 )
 target_precompile_headers(${PROJECT_NAME}
         PRIVATE

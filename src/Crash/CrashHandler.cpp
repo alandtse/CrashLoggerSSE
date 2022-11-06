@@ -167,13 +167,15 @@ namespace Crash
 				const auto mod = Introspection::get_module_for_pointer(eptr, a_modules);
 				if (mod) {
 					const auto pdbDetails = Crash::PDB::pdb_details(mod->path(), eaddr - mod->address());
+					const auto assembly = mod->assembly((const void*)eaddr);
 					if (!pdbDetails.empty())
 						return fmt::format(
-							" {}+{:07X} -> {})"sv,
+							" {}+{:07X}\t{} | {})"sv,
 							mod->name(),
 							eaddr - mod->address(),
+							assembly,
 							pdbDetails);
-					return fmt::format(" {}+{:07X}"sv, mod->name(), eaddr - mod->address());
+					return fmt::format(" {}+{:07X}\t{}"sv, mod->name(), eaddr - mod->address(), assembly);
 				} else {
 					return ""s;
 				}

@@ -46,6 +46,7 @@
 
 #include <Psapi.h>
 #include "Crash/PDB/PdbHandler.h"
+#include <Zydis/Zydis.h>
 
 #undef max
 #undef min
@@ -170,13 +171,14 @@ namespace Crash::Modules
 					});
 
 				auto result = super::get_frame_info(a_frame);
+				const auto assemblyStr = assembly(a_frame.address());
 				if (it != _offset2ID.rend()) {
 					result += fmt::format(
 						" -> {}+0x{:X}"sv,
 						it->id,
 						offset - it->offset);
 				}
-				return result;
+				return fmt::format("{}\t{}", result, assemblyStr);
 			}
 
 		private:
@@ -251,6 +253,37 @@ namespace Crash::Modules
 		return get_frame_info(a_frame);
 	}
 
+	std::string Module::assembly(const void* a_ptr) const
+	{
+		// Zydis code from https://github.com/zyantific/zydis/tree/v3.2.1#quick-example under MIT
+		// Initialize decoder context
+		ZydisDecoder decoder;
+		ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
+		// Initialize formatter. Only required when you actually plan to do instruction
+		// formatting ("disassembling"), like we do here
+		ZydisFormatter formatter;
+		ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+
+		ZyanUSize offset = 0;
+		ZyanU8 data[8];
+		ZyanU64 runtime_address = (ZyanU64)a_ptr;
+		memcpy(data, (const void*)runtime_address, sizeof(data));
+		const ZyanUSize length = sizeof(data);
+		ZydisDecodedInstruction instruction;
+		std::string assembly = "";
+		if (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, data + offset, length - offset,
+				&instruction))) {  // Grab only one instruction
+			// Format & convert the binary instruction structure to human readable format
+			char buffer[256];
+			ZydisFormatterFormatInstruction(&formatter, &instruction, buffer, sizeof(buffer),
+				runtime_address);
+			assembly = std::format("{}", buffer);
+			//offset += instruction.length;
+			//runtime_address += instruction.length;
+		}
+		return assembly;
+	}
+
 	Module::Module(std::string a_name, std::span<const std::byte> a_image, std::string a_path) :
 		_name(std::move(a_name)),
 		_image(a_image),
@@ -291,11 +324,13 @@ namespace Crash::Modules
 	std::string Module::get_frame_info(const boost::stacktrace::frame& a_frame) const
 	{
 		const auto offset = reinterpret_cast<std::uintptr_t>(a_frame.address()) - address();
+		const auto assembly = this->assembly(a_frame.address());
 		const auto pdbDetails = Crash::PDB::pdb_details(path(), offset);
 		if (!pdbDetails.empty())
 			return fmt::format(
-				"+{:07X} -> {}"sv,
+				"+{:07X}\t{} | {}"sv,
 				offset,
+				assembly,
 				pdbDetails);
 		return fmt::format(
 			"+{:07X}"sv,
