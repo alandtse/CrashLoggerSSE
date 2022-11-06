@@ -20,7 +20,7 @@
       "name": "msvc",
       "hidden": true,
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/permissive- /Zc:preprocessor /EHsc $penv{CXXFLAGS}"
+        "CMAKE_CXX_FLAGS": "/permissive- /Zc:preprocessor /EHa $penv{CXXFLAGS}"
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
@@ -34,7 +34,7 @@
       "name": "clang",
       "hidden": true,
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/permissive- /EHsc -Wno-overloaded-virtual -Wno-delete-non-abstract-non-virtual-dtor $penv{CXXFLAGS}",
+        "CMAKE_CXX_FLAGS": "/permissive- /EHa -Wno-overloaded-virtual -Wno-delete-non-abstract-non-virtual-dtor $penv{CXXFLAGS}",
         "CMAKE_C_COMPILER": "clang-cl",
         "CMAKE_CXX_COMPILER": "clang-cl"
       },
