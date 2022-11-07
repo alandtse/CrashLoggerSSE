@@ -22,7 +22,7 @@ jobs:
         os: [windows-latest]
         include:
           - os: windows-latest
-            vcpkgCommitId: 'cafd398be781144787573ca78390e951673c7055'
+            vcpkgCommitId: '68ad399d5596a540e8a12173c3d189cbc0f82be8'
 
     steps:
       - uses: actions/checkout@v3
@@ -65,8 +65,8 @@ jobs:
         uses: lukka/run-cmake@v10
         with:
           cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
-          configurePreset: build-release-msvc
-          buildPreset: release-msvc
+          configurePreset: Release-MSVC
+          buildPreset: Release-MSVC
       - name: Upload files to a GitHub release
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: svenstaro/upload-release-action@2.3.0
