@@ -56,6 +56,7 @@ jobs:
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
+            @semantic-release/github: "https://registry.npmjs.org/@achingbrain/semantic-release-github/-/semantic-release-github-0.0.0.tgz"
             @google/semantic-release-replace-plugin
           dry_run: false
         env:
