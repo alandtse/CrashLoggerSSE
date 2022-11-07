@@ -428,49 +428,55 @@ namespace Crash
 
 		void print_vrinfo(spdlog::logger& a_log)
 		{
-			if (REL::Module::IsVR() && VR_IsHmdPresent() && VR_IsRuntimeInstalled()) {
-				a_log.critical("VR SPECS:"sv);
-				// Loading the SteamVR Runtime
-				EVRInitError eError = VRInitError_None;
-				auto HMD = VR_Init(&eError, VRApplication_Background);
+			static auto openvr = GetModuleHandle(L"openvr_api"); // dynamically attach to open_vr
+			if (openvr) {
+				static auto _VR_GetGenericInterface = reinterpret_cast<decltype(&VR_GetGenericInterface)>(GetProcAddress(openvr, "VR_GetGenericInterface"));
+				static auto _VR_IsHmdPresent = reinterpret_cast<decltype(&VR_IsHmdPresent)>(GetProcAddress(openvr, "VR_IsHmdPresent"));
+				static auto _VR_IsRuntimeInstalled = reinterpret_cast<decltype(&VR_IsRuntimeInstalled)>(GetProcAddress(openvr, "VR_IsRuntimeInstalled"));
+				if (_VR_GetGenericInterface && _VR_IsHmdPresent && _VR_IsRuntimeInstalled && _VR_IsHmdPresent() && _VR_IsRuntimeInstalled()) {
+					a_log.critical("VR SPECS:"sv);
+					// Loading the SteamVR Runtime
+					EVRInitError eError = VRInitError_None;
+					auto HMD = (IVRSystem*)_VR_GetGenericInterface(IVRSystem_Version, &eError);
 
-				if (eError != VRInitError_None) {
-					a_log.critical("\tUnable to initialize VR"sv);
-					return;
-				}
-				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListString{
-					{ "Model", Prop_ModelNumber_String },
-					{ "Manufacturer", Prop_ManufacturerName_String },
-					{ "Tracking System", Prop_TrackingSystemName_String },
-					{ "Hardware Revision", Prop_HardwareRevision_String },
-					{ "Driver Version", Prop_DriverVersion_String },
-					{ "Render Model", Prop_RenderModelName_String },
-					{ "Additional Data", Prop_AdditionalSystemReportData_String },
-					{ "Expected Controller Type", Prop_ExpectedControllerType_String },
-					{ "Controller Type", Prop_ControllerType_String }
-				};
-				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListFloat{
-					//{ "Battery %", Prop_DeviceBatteryPercentage_Float },
-					//{ "Power Usage", Prop_DevicePowerUsage_Float }, // maybe be future value
-					{ "Display Frequency", Prop_DisplayFrequency_Float }
-				};
-				const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListBool{
-					{ "Wireless", Prop_DeviceIsWireless_Bool },
-					{ "Charging", Prop_DeviceIsCharging_Bool },
-					{ "Update Available", Prop_Firmware_UpdateAvailable_Bool },
-				};
-				char propValue[k_unMaxPropertyStringSize];
-				for (const auto& entry : propListString) {
-					HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second, propValue, std::size(propValue));
-					a_log.critical("\t{}: {}"sv, entry.first, propValue);
-				}
-				for (const auto& entry : propListFloat) {
-					const auto propValue = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
-					a_log.critical("\t{}: {}"sv, entry.first, propValue);
-				}
-				for (const auto& entry : propListBool) {
-					const auto propValue = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
-					a_log.critical("\t{}: {}"sv, entry.first, propValue);
+					if (eError != VRInitError_None) {
+						a_log.critical("\tUnable to initialize VR"sv);
+						return;
+					}
+					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListString{
+						{ "Model", Prop_ModelNumber_String },
+						{ "Manufacturer", Prop_ManufacturerName_String },
+						{ "Tracking System", Prop_TrackingSystemName_String },
+						{ "Hardware Revision", Prop_HardwareRevision_String },
+						{ "Driver Version", Prop_DriverVersion_String },
+						{ "Render Model", Prop_RenderModelName_String },
+						{ "Additional Data", Prop_AdditionalSystemReportData_String },
+						{ "Expected Controller Type", Prop_ExpectedControllerType_String },
+						{ "Controller Type", Prop_ControllerType_String }
+					};
+					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListFloat{
+						//{ "Battery %", Prop_DeviceBatteryPercentage_Float },
+						//{ "Power Usage", Prop_DevicePowerUsage_Float }, // maybe be future value
+						{ "Display Frequency", Prop_DisplayFrequency_Float }
+					};
+					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListBool{
+						{ "Wireless", Prop_DeviceIsWireless_Bool },
+						{ "Charging", Prop_DeviceIsCharging_Bool },
+						{ "Update Available", Prop_Firmware_UpdateAvailable_Bool },
+					};
+					char propValue[k_unMaxPropertyStringSize];
+					for (const auto& entry : propListString) {
+						HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second, propValue, std::size(propValue));
+						a_log.critical("\t{}: {}"sv, entry.first, propValue);
+					}
+					for (const auto& entry : propListFloat) {
+						const auto propValue = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
+						a_log.critical("\t{}: {}"sv, entry.first, propValue);
+					}
+					for (const auto& entry : propListBool) {
+						const auto propValue = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
+						a_log.critical("\t{}: {}"sv, entry.first, propValue);
+					}
 				}
 			}
 		}
@@ -514,7 +520,7 @@ namespace Crash
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
-				print([&]() { print_vrinfo(*log); }, "print_vrinfo");
+				if (REL::Module::IsVR()) print([&]() { print_vrinfo(*log); }, "print_vrinfo");
 
 				print(
 					[&]() {

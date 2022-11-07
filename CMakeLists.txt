@@ -218,7 +218,6 @@ target_link_libraries(${PROJECT_NAME}
         frozen::frozen
         infoware
         magic_enum::magic_enum
-        OpenVR::OpenVR
         Zydis::Zydis
 )
 target_precompile_headers(${PROJECT_NAME}
