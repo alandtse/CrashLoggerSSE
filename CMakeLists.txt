@@ -138,6 +138,7 @@ endif(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
 
 set(DIASDK_LIBRARIES ${DIASDK_GUIDS_LIBRARY})
 set(DIASDK_INCLUDE_DIRS ${DIASDK_INCLUDE_DIR})
+set(DIA_DLL "${DIASDK_INCLUDE_DIRS}/../bin/amd64/msdia140.dll")
 
 include(FindPackageHandleStandardArgs)
 
@@ -271,6 +272,10 @@ foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
         endif()
+        if(DIASDK_LIBRARIES)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
+        endif()
 endforeach()
 
 set(ZIP_DIR "${CMAKE_CURRENT_BINARY_DIR}/zip")
@@ -288,6 +293,12 @@ if(CONFIG_FILES)
         message("Copying default config files ${CONFIG_FILES} into ${ZIP_DIR}.")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy ${CONFIG_FILES} "${ZIP_DIR}/SKSE/Plugins/")
+endif()
+
+if(DIASDK_LIBRARIES)
+        message("Copying ${DIA_DLL} into ${ZIP_DIR}.")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${ZIP_DIR}/SKSE/Plugins/")
 endif()
 
 if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo OR ${CMAKE_BUILD_TYPE} STREQUAL Release)
