@@ -79,7 +79,7 @@ jobs:
           overwrite: true
       - name: Setup Dotnet
         if: steps.semantic.outputs.new_release_published == 'true'
-        uses: actions/setup-dotnet@v2
+        uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '3.1.0'
           include-prerelease: false
