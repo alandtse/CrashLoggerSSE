@@ -1061,8 +1061,7 @@ namespace Crash::Introspection::SSE
 					std::string lineTrace = "";
 					if (function.get()->GetIsNative()) {
 						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, "?"sv);
-					}
-					else {
+					} else {
 						std::uint32_t lineNumber;
 						function.get()->TranslateIPToLineNumber(currentStackFrame->instructionPointer, lineNumber);
 						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, std::to_string(lineNumber));
@@ -1076,8 +1075,7 @@ namespace Crash::Introspection::SSE
 						"",
 						tab_depth),
 					stackTrace);
-			}
-			catch (...) {}
+			} catch (...) {}
 		};
 	};
 }
