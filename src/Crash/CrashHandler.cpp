@@ -295,23 +295,21 @@ namespace Crash
 
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			if (datahandler) {
-				if (!REL::Module::IsVR()) {
-					const auto& [files, smallfiles] = datahandler->compiledFileCollection;
-					const auto fileFormat = [&]() {
-						return "\t[{:>02X}]{:"s + (!smallfiles.empty() ? "5"s : "1"s) + "}{}"s;
-					}();
-					for (const auto file : files) {
-						a_log.critical(fileFormat, file->GetCompileIndex(), "", file->GetFilename());
-					}
-					for (const auto file : smallfiles) {
-						a_log.critical("\t[FE:{:>03X}] {}"sv, file->GetSmallFileCompileIndex(), file->GetFilename());
-					}
-				} else {  // SKYRIM VR does not have light esps so only ->files is necessary.
-					auto& files = datahandler->files;
-					const auto fileFormat = [&]() { return "\t[{:>02X}]{:"s + "}{}"s; }();
-					for (const auto file : files) {
-						a_log.critical(fileFormat, file->GetCompileIndex(), "", file->GetFilename());
-					}
+				const auto lightCount = datahandler->GetLoadedLightModCount();
+				const auto modCount = datahandler->GetLoadedModCount();
+				a_log.critical("\tLight: {}\tRegular: {}\tTotal: {}"sv, lightCount, modCount, lightCount+modCount);
+				const auto& files = datahandler->GetLoadedMods();
+				const auto& smallfiles = datahandler->GetLoadedLightMods();
+				const auto fileFormat = [&]() {
+					return "\t[{:>02X}]{:"s + (lightCount ? "5"s : "1"s) + "}{}"s;
+				}();
+				for (auto i = 0; i < modCount; i++) {
+					const auto file = files[i];
+					a_log.critical(fileFormat, file->GetCompileIndex(), "", file->GetFilename());
+				}
+				for (auto i = 0; i < lightCount; i++) {
+					const auto file = smallfiles[i];
+					a_log.critical("\t[FE:{:>03X}] {}"sv, file->GetSmallFileCompileIndex(), file->GetFilename());
 				}
 			}
 		}
