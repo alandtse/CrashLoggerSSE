@@ -1037,6 +1037,49 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		};
 	};
+
+	// Code from Nightfallstorm
+	class CodeTasklet
+	{
+	public:
+		using value_type = RE::BSScript::Internal::CodeTasklet;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
+				std::string stackTrace = "\n";
+				while (currentStackFrame) {
+					auto function = currentStackFrame->owningFunction;
+					auto functionObjecTypeName = function.get()->GetObjectTypeName();
+					auto functionName = function.get()->GetName();
+					auto traceFormatString = "\t{}.{} - Line: {}\n";
+					std::string lineTrace = "";
+					if (function.get()->GetIsNative()) {
+						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, "?"sv);
+					}
+					else {
+						std::uint32_t lineNumber;
+						function.get()->TranslateIPToLineNumber(currentStackFrame->instructionPointer, lineNumber);
+						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, std::to_string(lineNumber));
+					}
+					stackTrace = stackTrace + lineTrace;
+					currentStackFrame = currentStackFrame->previousFrame;
+				}
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Stack Trace"sv,
+						"",
+						tab_depth),
+					stackTrace);
+			}
+			catch (...) {}
+		};
+	};
 }
 
 namespace Crash::Introspection
@@ -1222,6 +1265,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
