@@ -116,8 +116,8 @@ namespace Crash
 		std::string pdb_details(std::string_view a_name, uintptr_t a_offset)
 		{
 			std::string result = "";
-			if (a_name.ends_with("exe")) //ignore exe since pdbs not readily available for bethesda exes
-				return result;
+			//if (a_name.ends_with("exe")) //ignore exe since pdbs not readily available for bethesda exes
+			//	return result;
 			std::string pluginPath = "Data/SKSE/Plugins/";
 			std::filesystem::path dllPath { a_name };
 			std::string dll_path = a_name.data();
