@@ -180,6 +180,7 @@ SKSEPluginLoad(const LoadInterface* skse) {
     InitializeLogging();
 	auto* plugin = PluginDeclaration::GetSingleton();
 	auto version = plugin->GetVersion();
+	log::info("NOTE: This is not a crashlog. Crashlogs have the name crash-[TIMESTAMP].log");
 	log::info("{} {} {} {} is loading...", plugin->GetName(), version, __DATE__, __TIME__);
     Init(skse);
 	Crash::Install();
