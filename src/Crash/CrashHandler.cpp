@@ -235,7 +235,7 @@ namespace Crash
 			std::vector<value_type> plugins;
 			for (const auto& m : modules) {
 				try {
-					std::filesystem::path pluginDir{ "Data/SKSE/Plugins"sv };
+					std::filesystem::path pluginDir{ Crash::PDB::sPluginPath };
 					std::filesystem::path filename = pluginDir.append(m);
 					if (std::filesystem::exists(filename))
 						plugins.emplace_back(*std::move(std::make_optional(m)), REL::get_file_version(filename.wstring()));

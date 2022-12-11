@@ -118,11 +118,10 @@ namespace Crash
 			std::string result = "";
 			//if (a_name.ends_with("exe")) //ignore exe since pdbs not readily available for bethesda exes
 			//	return result;
-			std::string pluginPath = "Data/SKSE/Plugins/";
-			std::filesystem::path dllPath { a_name };
+			std::filesystem::path dllPath{ a_name };
 			std::string dll_path = a_name.data();
 			if (!dllPath.has_parent_path())
-				dll_path = pluginPath + dllPath.filename().string();
+				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
 			auto rva = (DWORD)a_offset;
 			CComPtr<IDiaDataSource> pSource;
 			auto hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
