@@ -1,4 +1,5 @@
 #include "Crash/CrashHandler.h"
+#include "Crash/PDB/PdbHandler.h"
 
 #include "Config.h"
 #include <stddef.h>
@@ -187,7 +188,8 @@ SKSEPluginLoad(const LoadInterface* skse) {
     //InitializeMessaging();
     //InitializeSerialization();
     //InitializePapyrus();
-    log::info("{} has finished loading.", plugin->GetName());
+	//Crash::PDB::dump_symbols(true); // dump exe info
+	log::info("{} has finished loading.", plugin->GetName());
 	return true;
 }
 
