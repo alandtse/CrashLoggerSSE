@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Code from StackOverflow
 
-
 #pragma once
 #include "PdbHandler.h"
 #include "Config.h"
@@ -95,7 +94,9 @@ namespace Crash
 				logger::info("Symbol returning: {}", a_result);
 			return a_result;
 		}
-		std::string print_hr_failure(HRESULT hr) {
+
+		std::string print_hr_failure(HRESULT hr)
+		{
 			auto errMsg = "";
 			switch ((unsigned int)hr) {
 			case 0x806D0005:  // E_PDB_NOT_FOUND
@@ -134,21 +135,21 @@ namespace Crash
 
 			// try to load local copy
 			auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
-			hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource),(void**)&pSource);
+			hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource), (void**)&pSource);
 			if (FAILED(hr)) {
+				auto error = print_hr_failure(hr);
+				logger::info("Failed to manually load msdia140.dll and create object for CLSID for dll {}+{:07X}\t{}", a_name, a_offset, error);
+				// msdia*.dll try registered copy
+				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource,
+							   NULL,
+							   CLSCTX_INPROC_SERVER,
+							   __uuidof(IDiaDataSource),
+							   (void**)&pSource))) {
 					auto error = print_hr_failure(hr);
-					logger::info("Failed to manually load msdia140.dll and create object for CLSID for dll {}+{:07X}\t{}", a_name, a_offset, error);
-					// msdia*.dll try registered copy
-					if (FAILED(hr = CoCreateInstance(CLSID_DiaSource,
-								   NULL,
-								   CLSCTX_INPROC_SERVER,
-								   __uuidof(IDiaDataSource),
-								   (void**)&pSource))) {
-						auto error = print_hr_failure(hr);
-						logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
-						CoUninitialize();
-						return result;
-					}
+					logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
+					CoUninitialize();
+					return result;
+				}
 			}
 
 			wchar_t wszFilename[_MAX_PATH];
@@ -162,7 +163,7 @@ namespace Crash
 					symcacheValid = true;
 				} else if (!symcache.empty()) {
 					logger::info("Symcache not found at {}", symcache);
-				}else
+				} else
 					logger::info("Symcache not defined");
 				symcacheChecked = true;
 			}
@@ -338,5 +339,3 @@ namespace Crash
 		}
 	}
 }
-
-
