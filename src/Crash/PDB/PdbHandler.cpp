@@ -154,6 +154,7 @@ namespace Crash
 
 			wchar_t wszFilename[_MAX_PATH];
 			wchar_t wszPath[_MAX_PATH];
+			std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
 			mbstowcs(wszFilename, dll_path.c_str(), sizeof(wszFilename) / sizeof(wszFilename[0]));
 			const auto& debugConfig = CrashLogger::Config::GetSingleton().GetDebug();
 			auto symcache = debugConfig.GetSymcache();
@@ -167,13 +168,23 @@ namespace Crash
 					logger::info("Symcache not defined");
 				symcacheChecked = true;
 			}
-			if (symcacheValid)
-				mbstowcs(wszPath, fmt::format("cache*{}"s, symcache).c_str(), sizeof(wszPath) / sizeof(wszPath[0]));
-			logger::info("Attempting to find pdb for {}+{:07X}", a_name, a_offset);
-			hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
-			if (FAILED(hr)) {
-				auto error = print_hr_failure(hr);
-				logger::info("Failed to open pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
+			if (symcacheValid) {
+				searchPaths.push_back(fmt::format("cache*{}"s, symcache).c_str());
+			}
+			auto foundPDB = false;
+			for (const auto& path : searchPaths) {
+				mbstowcs(wszPath, path.c_str(), sizeof(wszPath) / sizeof(wszPath[0]));
+				logger::info("Attempting to find pdb for {}+{:07X} with path {}", a_name, a_offset, path);
+				hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
+				if (FAILED(hr)) {
+					auto error = print_hr_failure(hr);
+					logger::info("Failed to open pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
+					continue;
+				}
+				foundPDB = true;
+				break;
+			}
+			if (!foundPDB) {
 				CoUninitialize();
 				return result;
 			}
