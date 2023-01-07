@@ -39,6 +39,26 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 
 			try {
+				auto sourcefiles = form->sourceFiles.array;
+				if (sourcefiles && sourcefiles->size() > 1) {
+					std::string filesString = "";
+					for (auto index = 0; index < sourcefiles->size(); index++) {
+						auto sourcefile = sourcefiles->data()[index];
+						filesString = filesString.empty() ? fmt::format("{}"sv,
+																sourcefile->GetFilename().data()) :
+						                                    fmt::format("{} -> {}"sv,
+																filesString, sourcefile->GetFilename().data());
+					}
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Modified by"sv,
+							"",
+							tab_depth),
+						filesString);
+				}
+			} catch (...) {}
+
+			try {
 				const auto formFlags = form->GetFormFlags();
 				using recordFlags = value_type::RecordFlags::RecordFlag;
 				std::string flagString = "";
