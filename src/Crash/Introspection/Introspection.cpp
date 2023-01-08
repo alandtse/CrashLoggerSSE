@@ -5,6 +5,7 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <magic_enum.hpp>
 
+#undef GetObject
 namespace Crash::Introspection::SSE
 {
 	using filter_results = std::vector<std::pair<std::string, std::string>>;
@@ -1049,7 +1050,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->handlePolicy;
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
 				std::string stackTrace = "\n";
@@ -1057,14 +1058,21 @@ namespace Crash::Introspection::SSE
 					auto function = currentStackFrame->owningFunction;
 					auto functionObjecTypeName = function.get()->GetObjectTypeName();
 					auto functionName = function.get()->GetName();
-					auto traceFormatString = "\t{}.{} - Line: {}\n";
+					auto objectInstanceString = RE::BSFixedString("None");
+					auto objectRef = currentStackFrame->self;
+					if (objectRef.IsObject()) {	
+						auto objectHandle = objectRef.GetObject().get()->GetHandle();
+						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
+					}
+					auto sourceFileName = function->GetSourceFilename();
+					auto traceFormatString = "\t[{}].{}.{}() - \"{}\" Line {}\n"; // Same format in Papyrus logs
 					std::string lineTrace = "";
 					if (function.get()->GetIsNative()) {
-						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, "?"sv);
+						lineTrace = fmt::format(traceFormatString, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, "?"sv);
 					} else {
 						std::uint32_t lineNumber;
 						function.get()->TranslateIPToLineNumber(currentStackFrame->instructionPointer, lineNumber);
-						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, std::to_string(lineNumber));
+						lineTrace = fmt::format(traceFormatString, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, std::to_string(lineNumber));
 					}
 					stackTrace = stackTrace + lineTrace;
 					currentStackFrame = currentStackFrame->previousFrame;
