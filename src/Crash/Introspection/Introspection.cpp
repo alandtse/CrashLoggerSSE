@@ -1049,7 +1049,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			const auto handlePolicy = RE::SkyrimVM::GetSingleton()->handlePolicy;
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->handlePolicy;
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
 				std::string stackTrace = "\n";
