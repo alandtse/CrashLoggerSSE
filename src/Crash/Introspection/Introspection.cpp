@@ -5,6 +5,7 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <magic_enum.hpp>
 
+#undef GetObject
 namespace Crash::Introspection::SSE
 {
 	using filter_results = std::vector<std::pair<std::string, std::string>>;
@@ -1059,8 +1060,8 @@ namespace Crash::Introspection::SSE
 					auto functionName = function.get()->GetName();
 					auto objectInstanceString = RE::BSFixedString("None");
 					auto objectRef = currentStackFrame->self;
-					if (objectRef.IsObject()) {	
-						auto objectHandle = objectRef.GetObjectW().get()->GetHandle();
+					if (objectRef.IsObject()) {
+						auto objectHandle = objectRef.GetObject().get()->GetHandle();
 						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
 					}
 					auto sourceFileName = function->GetSourceFilename();
