@@ -5,6 +5,7 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <magic_enum.hpp>
 
+#undef GetObject
 namespace Crash::Introspection::SSE
 {
 	using filter_results = std::vector<std::pair<std::string, std::string>>;
@@ -1069,22 +1070,38 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->handlePolicy;
+			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
 				std::string stackTrace = "\n";
+				std::map<std::string, bool> objectReferences;
 				while (currentStackFrame) {
 					auto function = currentStackFrame->owningFunction;
 					auto functionObjecTypeName = function.get()->GetObjectTypeName();
 					auto functionName = function.get()->GetName();
-					auto traceFormatString = "\t{}.{} - Line: {}\n";
+					auto objectInstanceString = RE::BSFixedString("None");
+					auto objectRef = currentStackFrame->self;
+					if (objectRef.IsObject()) {
+#undef GetObject
+						auto objectHandle = objectRef.GetObject().get()->GetHandle();
+						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
+						const auto handleString = std::string{ objectInstanceString };
+						const auto paranStart = handleString.find("(");
+						const auto paranEnd = handleString.rfind(")");
+						const auto formIDString = (paranStart != std::string::npos && paranEnd != std::string::npos && paranStart <= paranEnd) ? handleString.substr(paranStart + 1, paranEnd - 1) : "";
+						if (!formIDString.empty())
+							objectReferences.emplace(formIDString, true);
+					}
+					auto sourceFileName = function->GetSourceFilename();
+					auto traceFormatString = "{:\t>{}}[{}].{}.{}() - \"{}\" Line {}\n";  // Same format in Papyrus logs
 					std::string lineTrace = "";
 					if (function.get()->GetIsNative()) {
-						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, "?"sv);
+						lineTrace = fmt::format(traceFormatString, "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, "?"sv);
 					} else {
 						std::uint32_t lineNumber;
 						function.get()->TranslateIPToLineNumber(currentStackFrame->instructionPointer, lineNumber);
-						lineTrace = fmt::format(traceFormatString, functionObjecTypeName, functionName, std::to_string(lineNumber));
+						lineTrace = fmt::format(traceFormatString, "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, std::to_string(lineNumber));
 					}
 					stackTrace = stackTrace + lineTrace;
 					currentStackFrame = currentStackFrame->previousFrame;
@@ -1095,6 +1112,14 @@ namespace Crash::Introspection::SSE
 						"",
 						tab_depth),
 					stackTrace);
+				for (auto& objectReference : objectReferences) {
+					const auto objectString = objectReference.first;
+					const auto modIndex = std::stoi(objectString.substr(0, 2), nullptr, 16);
+					const auto form = std::stoi(objectString.substr(3, objectString.size()), nullptr, 16);
+					const auto target = datahandler->LookupForm(form, datahandler->LookupLoadedModByIndex(modIndex)->GetFilename());
+					if (target)
+						TESForm<RE::TESForm>::filter(a_results, target, tab_depth + 1);
+				}
 			} catch (...) {}
 		};
 	};
