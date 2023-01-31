@@ -611,6 +611,53 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class hkpConstraintInstance
+	{
+	public:
+		using value_type = RE::hkpConstraintInstance;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& entities = object->entities;
+				if (entities)
+					for (int i = 0; i < 2; i++) {
+						auto entity = entities[i];
+						if (entity) {
+							a_results.emplace_back(
+								fmt::format(
+									"{:\t>{}}Entity [{}]"sv,
+									"",
+									tab_depth,
+									i),
+								"-----"sv);
+							if (!entity->name.empty())
+								a_results.emplace_back(
+									fmt::format(
+										"{:\t>{}}Name"sv,
+										"",
+										tab_depth),
+									quoted(entity->name.data()));
+							if (entity->GetUserData()) {
+								a_results.emplace_back(
+									fmt::format(
+										"{:\t>{}}Checking User Data"sv,
+										"",
+										tab_depth),
+									"-----"sv);
+								TESObjectREFR::filter(a_results, entity->GetUserData(), tab_depth + 1);
+							}
+						}
+					}
+			} catch (...) {}
+		};
+	};
+
 	class hkbNode
 	{
 	public:
@@ -1313,6 +1360,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
 				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
+				std::make_pair(".?AVhkpConstraintInstance@@"sv, SSE::hkpConstraintInstance::filter),
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
 				std::make_pair(".?AVNativeFunctionBase@NF_util@BSScript@@"sv, SSE::BSScript::NF_util::NativeFunctionBase::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
