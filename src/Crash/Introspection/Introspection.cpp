@@ -421,7 +421,7 @@ namespace Crash::Introspection::SSE
 								"{:\t>{}}Checking Owner"sv,
 								"",
 								tab_depth),
-							"-----");
+							"-----"sv);
 						TESForm<RE::TESForm>::filter(a_results, owner, tab_depth + 1);
 					}
 					a_results.emplace_back(
@@ -429,7 +429,7 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}Checking User Data"sv,
 							"",
 							tab_depth),
-						"-----");
+						"-----"sv);
 					TESObjectREFR::filter(a_results, userdata, tab_depth + 1);
 				}
 			} catch (...) {}
@@ -694,7 +694,7 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}Checking User Data"sv,
 							"",
 							tab_depth),
-						"-----");
+						"-----"sv);
 					TESObjectREFR::filter(a_results, userdata, tab_depth + 1);
 					if (auto owner = userdata->GetOwner()) {
 						a_results.emplace_back(
@@ -702,7 +702,7 @@ namespace Crash::Introspection::SSE
 								"{:\t>{}}Checking Owner"sv,
 								"",
 								tab_depth),
-							"-----");
+							"-----"sv);
 						TESForm<RE::TESForm>::filter(a_results, owner, tab_depth + 1);
 					}
 				}
@@ -1083,7 +1083,7 @@ namespace Crash::Introspection::SSE
 					auto objectInstanceString = RE::BSFixedString("None");
 					auto objectRef = currentStackFrame->self;
 					if (objectRef.IsObject()) {
-#undef GetObject
+#undef GetObject // Also may be necessary in CommonLibNG StackFrame.h
 						auto objectHandle = objectRef.GetObject().get()->GetHandle();
 						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
 						const auto handleString = std::string{ objectInstanceString };
@@ -1308,8 +1308,8 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
-				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
+				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
 				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
