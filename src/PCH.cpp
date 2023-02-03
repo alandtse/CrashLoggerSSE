@@ -39,7 +39,6 @@
 #define NODEFERWINDOWPOS
 #define NOMCX
 
-#include <Windows.h>
 
 #include <dbghelp.h>
 

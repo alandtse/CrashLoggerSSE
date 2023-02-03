@@ -42,7 +42,6 @@
 #define NODEFERWINDOWPOS
 #define NOMCX
 
-#include <Windows.h>
 
 #include <Psapi.h>
 #include "Crash/PDB/PdbHandler.h"

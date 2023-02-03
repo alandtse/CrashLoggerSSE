@@ -5,7 +5,6 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <magic_enum.hpp>
 
-#undef GetObject
 namespace Crash::Introspection::SSE
 {
 	using filter_results = std::vector<std::pair<std::string, std::string>>;
@@ -1130,7 +1129,6 @@ namespace Crash::Introspection::SSE
 					auto objectInstanceString = RE::BSFixedString("None");
 					auto objectRef = currentStackFrame->self;
 					if (objectRef.IsObject()) {
-#undef GetObject // Also may be necessary in CommonLibNG StackFrame.h
 						auto objectHandle = objectRef.GetObject().get()->GetHandle();
 						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
 						const auto handleString = std::string{ objectInstanceString };

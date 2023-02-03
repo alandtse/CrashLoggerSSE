@@ -43,7 +43,6 @@
 #define NODEFERWINDOWPOS
 #define NOMCX
 
-#include <Windows.h>
 #include <winternl.h>
 
 #include <Config.h>

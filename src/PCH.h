@@ -104,7 +104,6 @@
 
 #include <Psapi.h>
 #include <ShlObj_core.h>
-#include <Windows.h>
 #include <boost/stacktrace.hpp>
 #include <fmt/format.h>
 #include <frozen/map.h>
@@ -115,7 +114,8 @@
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/msvc_sink.h>
-
+#undef GetObject  // Have to do this because PCH pulls in spdlog->winbase.h->windows.h->wingdi.h, which redfines GetObject
+#undef GetObjectA
 
 // Compatible declarations with other sample projects.
 #define DLLEXPORT __declspec(dllexport)
