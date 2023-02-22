@@ -433,6 +433,18 @@ namespace Crash::Introspection::SSE
 				}
 			} catch (...) {}
 			try {
+				const auto objectRefr = RE::TESObjectREFR::FindReferenceFor3D((RE::NiAVObject*)a_ptr);
+				if (objectRefr) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking TESObjectREFR"sv,
+							"",
+							tab_depth),
+							"{}"sv);
+					TESObjectREFR::filter(a_results, objectRefr, tab_depth + 1);
+				}
+			} catch (...) {}
+			try {
 				const auto parent = object->parent;
 				const auto parentIndex = object->parentIndex;
 				if (parent) {
@@ -547,6 +559,43 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class BSShader
+	{
+	public:
+		using value_type = RE::BSShader;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& filename = object->fxpFilename;
+				if (filename && filename[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}fxpFilename"sv,
+							"",
+							tab_depth),
+						quoted(filename));
+			} catch (...) {}
+
+			try {
+				const auto type = object->shaderType;
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}ShaderType"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"0x{:08X}"sv,
+						type));
+			} catch (...) {}
+		}
+	};
+
 	class BSShaderMaterial
 	{
 	public:
@@ -585,6 +634,31 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class hkaAnimationBinding
+	{
+	public:
+		using value_type = RE::hkaAnimationBinding;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->originalSkeletonName;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Skeleton Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+		};
+	};
+
 	class hkbCharacter
 	{
 	public:
@@ -606,6 +680,66 @@ namespace Crash::Introspection::SSE
 							"",
 							tab_depth),
 						quoted(name.data()));
+			} catch (...) {}
+		};
+	};
+
+	class hkbClipGenerator
+	{
+	public:
+		using value_type = RE::hkbClipGenerator;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& name = object->animationName;
+				if (!name.empty())
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Animation Name"sv,
+							"",
+							tab_depth),
+						quoted(name.data()));
+			} catch (...) {}
+			try {
+				const auto flags = object->mode;
+				using recordFlags = value_type::PlaybackMode;
+				std::string flagString = "";
+				constexpr auto flagEntries = magic_enum::enum_entries<recordFlags>();
+				for (const auto& entry : flagEntries) {
+					const auto flag = entry.first;
+					const auto flagName = entry.second;
+					if (flag & flags)
+						flagString = flagString.empty() ?
+						                 flagName :
+						                 flagString.append(" | "sv).append(flagName);
+				}
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}Playback Mode"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"{} {}"sv,
+						flags.underlying(),
+						flagString));
+			} catch (...) {}
+			try {
+				const auto& binding = object->binding;
+				if (binding) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Checking Binding"sv,
+							"",
+							tab_depth),
+						"-----"sv);
+					hkaAnimationBinding::filter(a_results, binding, tab_depth + 1);
+				}
 			} catch (...) {}
 		};
 	};
@@ -1351,12 +1485,15 @@ namespace Crash::Introspection
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
 				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
+				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
+				std::make_pair(".?AVhkaAnimationBinding@@"sv, SSE::hkaAnimationBinding::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
+				std::make_pair(".?AVhkbClipGenerator@@"sv, SSE::hkbClipGenerator::filter),
 				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
 				std::make_pair(".?AVhkpConstraintInstance@@"sv, SSE::hkpConstraintInstance::filter),
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
