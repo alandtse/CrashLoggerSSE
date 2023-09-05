@@ -49,9 +49,10 @@ jobs:
         run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
 
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v3
+        uses: cycjimmy/semantic-release-action@v3.4.1
         id: semantic # Need an `id` for output variables
         with:
+          semantic_version: 18
           # You can specify specifying version range for the extra plugins if you prefer.
           extra_plugins: |
             @semantic-release/changelog
