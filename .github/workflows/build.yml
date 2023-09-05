@@ -22,7 +22,7 @@ jobs:
         os: [windows-latest]
         include:
           - os: windows-latest
-            vcpkgCommitId: '6f7ffeb18f99796233b958aaaf14ec7bd4fb64b2'
+            vcpkgCommitId: "17d868f8eb8afcc5c2ab735a17ab730bbb0fef28"
 
     steps:
       - uses: actions/checkout@v3
@@ -39,18 +39,18 @@ jobs:
         id: runvcpkg
         with:
           # This specifies the location of vcpkg, where it is going to be restored from cache, or create from scratch.
-          vcpkgDirectory: '${{ runner.workspace }}/b/vcpkg'
+          vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
           # The Git commit id of vcpkg to be checked out. This is only needed because we are not using a submodule.
-          vcpkgGitCommitId: '${{ matrix.vcpkgCommitId}}'
+          vcpkgGitCommitId: "${{ matrix.vcpkgCommitId}}"
           # The vcpkg.json file, which will be part of cache key computation.
-          vcpkgJsonGlob: '/vcpkg.json'
+          vcpkgJsonGlob: "/vcpkg.json"
 
       - name: Prints output of run-vcpkg's action
         run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v3
-        id: semantic   # Need an `id` for output variables
+        id: semantic # Need an `id` for output variables
         with:
           # You can specify specifying version range for the extra plugins if you prefer.
           extra_plugins: |
@@ -65,7 +65,7 @@ jobs:
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: lukka/run-cmake@v10
         with:
-          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
+          cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
           configurePreset: Release-MSVC
           buildPreset: Release-MSVC
       - name: Upload files to a GitHub release
@@ -81,12 +81,12 @@ jobs:
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '3.1.x'
+          dotnet-version: 6.x.x
       - name: Download NexusUploader
         if: steps.semantic.outputs.new_release_published == 'true'
-        run: dotnet tool install -g NexusUploader
+        run: dotnet tool install -g BUTR.NexusUploader
       - name: Upload files to Nexus
-      # https://github.com/agc93/nexus-uploader
+        # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
         if: steps.semantic.outputs.new_release_published == 'true'
         env:
           UNEX_COOKIES: ${{ secrets.UNEX_COOKIES }}
