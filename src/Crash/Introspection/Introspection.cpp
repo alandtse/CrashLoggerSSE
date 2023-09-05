@@ -725,10 +725,9 @@ namespace Crash::Introspection::SSE
 				for (const auto& entry : flagEntries) {
 					const auto flag = entry.first;
 					const auto flagName = entry.second;
-					if (flag & flags)
-						flagString = flagString.empty() ?
-						                 flagName :
-						                 flagString.append(" | "sv).append(flagName);
+					if (flag == flags)
+						flagString = flagName;
+					break;
 				}
 				a_results.emplace_back(
 					fmt::format(
