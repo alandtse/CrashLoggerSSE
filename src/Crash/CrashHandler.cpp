@@ -3,6 +3,7 @@
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
+#include "dxgi1_4.h"
 
 #define NOGDICAPMASKS
 #define NOVIRTUALKEYCODES
@@ -421,6 +422,16 @@ namespace Crash
 			const auto mem = iware::system::memory();
 			a_log.critical("\tPHYSICAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
 				gibibyte(mem.physical_total - mem.physical_available), gibibyte(mem.physical_total));
+
+			//https://forums.unrealengine.com/t/how-to-get-vram-usage-via-c/218627/2
+			IDXGIFactory4* pFactory{};
+			CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
+			IDXGIAdapter3* adapter{};
+			pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
+			DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
+			adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
+			a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
+				gibibyte(videoMemoryInfo.Budget));
 		}
 
 		void print_vrinfo(spdlog::logger& a_log)
