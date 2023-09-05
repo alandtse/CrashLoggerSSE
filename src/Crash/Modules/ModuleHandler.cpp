@@ -42,9 +42,8 @@
 #define NODEFERWINDOWPOS
 #define NOMCX
 
-
-#include <Psapi.h>
 #include "Crash/PDB/PdbHandler.h"
+#include <Psapi.h>
 #include <Zydis/Zydis.h>
 
 #undef max
@@ -82,8 +81,8 @@ namespace Crash::Modules
 					reinterpret_cast<const char*>(a_data.data()),
 					reinterpret_cast<const char*>(a_data.data() + a_data.size()));
 				return first != last ?
-                           reinterpret_cast<const RE::RTTI::TypeDescriptor*>(first - offset) :
-                           nullptr;
+				           reinterpret_cast<const RE::RTTI::TypeDescriptor*>(first - offset) :
+				           nullptr;
 			}
 
 			[[nodiscard]] static auto complete_object_locator(
@@ -242,7 +241,6 @@ namespace Crash::Modules
 				const std::filesystem::path p = buf.data();
 				return p.generic_string();
 			}
-
 		};
 	}
 
@@ -254,31 +252,21 @@ namespace Crash::Modules
 
 	std::string Module::assembly(const void* a_ptr) const
 	{
-		// Zydis code from https://github.com/zyantific/zydis/tree/v3.2.1#quick-example under MIT
-		// Initialize decoder context
-		ZydisDecoder decoder;
-		ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
-		// Initialize formatter. Only required when you actually plan to do instruction
-		// formatting ("disassembling"), like we do here
-		ZydisFormatter formatter;
-		ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+		// Zydis code from https://github.com/zyantific/zydis/blob/214536a814ba20d2e33d2a907198d1a329aac45c/examples/DisassembleSimple.c#L38-L63 under MIT
 
 		ZyanUSize offset = 0;
 		ZyanU8 data[8];
 		ZyanU64 runtime_address = (ZyanU64)a_ptr;
 		memcpy(data, (const void*)runtime_address, sizeof(data));
-		const ZyanUSize length = sizeof(data);
-		ZydisDecodedInstruction instruction;
 		std::string assembly = "";
-		if (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, data + offset, length - offset,
-				&instruction))) {  // Grab only one instruction
-			// Format & convert the binary instruction structure to human readable format
-			char buffer[256];
-			ZydisFormatterFormatInstruction(&formatter, &instruction, buffer, sizeof(buffer),
-				runtime_address);
-			assembly = std::format("{}", buffer);
-			//offset += instruction.length;
-			//runtime_address += instruction.length;
+		ZydisDisassembledInstruction instruction;
+		if (ZYAN_SUCCESS(ZydisDisassembleIntel(
+				/* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+				/* runtime_address: */ runtime_address,
+				/* buffer:          */ data + offset,
+				/* length:          */ sizeof(data) - offset,
+				/* instruction:     */ &instruction))) {
+			assembly = std::format("{}", instruction.text);
 		}
 		return assembly;
 	}

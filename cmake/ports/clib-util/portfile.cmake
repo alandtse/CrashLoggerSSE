@@ -1,0 +1,14 @@
+# header-only library
+vcpkg_from_github(
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO powerof3/CLibUtil
+    REF 191c90a846c0b70c69ff46ab25184076201bc675
+    SHA512 67fbf44d531f50e90d2e2b9ca50970096809d8664a25dcc6f1dd4ffa06ee346540d126165ecfe1830d0751e6a6683d806767d9ee466d0fa3919d831b413f6c58
+    HEAD_REF master
+)
+
+# Install codes
+set(CLIBUTIL_SOURCE	${SOURCE_PATH}/include/ClibUtil)
+file(INSTALL ${CLIBUTIL_SOURCE} DESTINATION ${CURRENT_PACKAGES_DIR}/include)
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

@@ -212,20 +212,20 @@ namespace Crash::Introspection::SSE
 			try {
 				const auto formFlags = form->flags;
 				a_results.emplace_back(
-					fmt::format(
-						"{:\t>{}}Flags"sv,
+					fmt::format(fmt::runtime(
+									"{:\t>{}}Flags"sv),
 						"",
 						tab_depth),
-					fmt::format(
-						"0x{:08X}"sv,
-						formFlags.get()));
+					fmt::format(fmt::runtime(
+									"0x{:08X}"sv),
+						(std::uint64_t)formFlags.get()));
 			} catch (...) {}
 			try {
 				const auto name = form->name.c_str();
 				if (name && name[0])
 					a_results.emplace_back(
-						fmt::format(
-							"{:\t>{}}Name"sv,
+						fmt::format(fmt::runtime(
+										"{:\t>{}}Name"sv),
 							"",
 							tab_depth),
 						quoted(name));
@@ -440,7 +440,7 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}Checking TESObjectREFR"sv,
 							"",
 							tab_depth),
-							"{}"sv);
+						"{}"sv);
 					TESObjectREFR::filter(a_results, objectRefr, tab_depth + 1);
 				}
 			} catch (...) {}
@@ -584,14 +584,25 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto type = object->shaderType;
+				using recordFlags = value_type::Type;
+				std::string typeString = "";
+				constexpr auto typeEntries = magic_enum::enum_entries<recordFlags>();
+				for (const auto& entry : typeEntries) {
+					const auto _type = entry.first;
+					const auto typeName = entry.second;
+					if (_type == type)
+						typeString = typeName;
+					break;
+				}
+
 				a_results.emplace_back(
-					fmt::format(
-						"{:\t>{}}ShaderType"sv,
+					fmt::format(fmt::runtime(
+									"{:\t>{}}ShaderType"),
 						"",
 						tab_depth),
-					fmt::format(
-						"0x{:08X}"sv,
-						type));
+					fmt::format(fmt::runtime(
+									"0x{:08X}"),
+						typeString));
 			} catch (...) {}
 		}
 	};
@@ -679,7 +690,7 @@ namespace Crash::Introspection::SSE
 							"{:\t>{}}Name"sv,
 							"",
 							tab_depth),
-						quoted(name.data()));
+						quoted(name.c_str()));
 			} catch (...) {}
 		};
 	};
@@ -1276,11 +1287,11 @@ namespace Crash::Introspection::SSE
 					auto traceFormatString = "{:\t>{}}[{}].{}.{}() - \"{}\" Line {}\n";  // Same format in Papyrus logs
 					std::string lineTrace = "";
 					if (function.get()->GetIsNative()) {
-						lineTrace = fmt::format(traceFormatString, "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, "?"sv);
+						lineTrace = fmt::format(fmt::runtime(traceFormatString), "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, "?"sv);
 					} else {
 						std::uint32_t lineNumber;
 						function.get()->TranslateIPToLineNumber(currentStackFrame->instructionPointer, lineNumber);
-						lineTrace = fmt::format(traceFormatString, "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, std::to_string(lineNumber));
+						lineTrace = fmt::format(fmt::runtime(traceFormatString), "", tab_depth, objectInstanceString, functionObjecTypeName, functionName, sourceFileName, std::to_string(lineNumber));
 					}
 					stackTrace = stackTrace + lineTrace;
 					currentStackFrame = currentStackFrame->previousFrame;
@@ -1328,8 +1339,8 @@ namespace Crash::Introspection
 			Integer(std::size_t a_value) noexcept :
 				_value(a_value),
 				name_string(a_value >> 63 ?
-								fmt::format("(size_t) [uint: {} int: {}]"s, _value, static_cast<std::make_signed_t<size_t>>(_value)) :
-								fmt::format("(size_t) [{}]"s, _value))
+								fmt::format(fmt::runtime("(size_t) [uint: {} int: {}]"s), _value, static_cast<std::make_signed_t<size_t>>(_value)) :
+								fmt::format(fmt::runtime("(size_t) [{}]"s), _value))
 			{
 			}
 

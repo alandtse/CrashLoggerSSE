@@ -1,8 +1,8 @@
 #pragma once
 
+#include <ClibUtil/simpleINI.hpp>
+
 #include <atlbase.h>
-#include <dia2.h>
-#include <diacreate.h>
 #include <cassert>
 #include <cctype>
 #include <cerrno>
@@ -24,6 +24,8 @@
 #include <cuchar>
 #include <cwchar>
 #include <cwctype>
+#include <dia2.h>
+#include <diacreate.h>
 
 #include <algorithm>
 #include <any>
@@ -122,6 +124,8 @@
 
 using namespace std::literals;
 using namespace REL::literals;
+namespace string = clib_util::string;
+namespace ini = clib_util::ini;
 
 namespace logger = SKSE::log;
 

@@ -13,7 +13,11 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-skse",
         "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake",
-        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+        "VCPKG_OVERLAY_PORTS": {
+					"type": "STRING",
+					"value": "${sourceDir}/cmake/ports/"
+				  }
       }
     },
     {

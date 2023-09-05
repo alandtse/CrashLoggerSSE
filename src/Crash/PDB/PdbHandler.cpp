@@ -3,7 +3,7 @@
 
 #pragma once
 #include "PdbHandler.h"
-#include "Config.h"
+#include "Settings.h"
 #include <comdef.h>
 
 namespace Crash
@@ -53,7 +53,7 @@ namespace Crash
 			auto convertedName = ConvertBSTRToMBS(name);
 			DWORD rva;
 			if (a_rva == 0)
-				a_symbol->get_relativeVirtualAddress(&rva); // find rva if not provided
+				a_symbol->get_relativeVirtualAddress(&rva);  // find rva if not provided
 			else
 				rva = a_rva;
 			ULONGLONG length = 0;
@@ -168,8 +168,8 @@ namespace Crash
 			wchar_t wszPath[_MAX_PATH];
 			std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
 			mbstowcs(wszFilename, dll_path.c_str(), sizeof(wszFilename) / sizeof(wszFilename[0]));
-			const auto& debugConfig = CrashLogger::Config::GetSingleton().GetDebug();
-			auto symcache = debugConfig.GetSymcache();
+			const auto& debugConfig = Settings::GetSingleton()->GetDebug();
+			std::string symcache = debugConfig.symcache;
 			if (!symcacheChecked) {
 				if (!symcache.empty() && std::filesystem::exists(symcache) && std::filesystem::is_directory(symcache)) {
 					logger::info("Symcache found at {}", symcache);
@@ -181,7 +181,7 @@ namespace Crash
 				symcacheChecked = true;
 			}
 			if (symcacheValid) {
-				searchPaths.push_back(fmt::format("cache*{}"s, symcache).c_str());
+				searchPaths.push_back(fmt::format("cache*{}"s, symcache.c_str()));
 			}
 			auto foundPDB = false;
 			for (const auto& path : searchPaths) {

@@ -13,7 +13,7 @@ project(
         LANGUAGES CXX)
 set(PROJECT_FRIENDLY_NAME "CrashLogger NG")
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD_REQUIRED OFF)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
@@ -24,12 +24,10 @@ configure_file(
         @ONLY)
 
 set(headers
-        src/Config.h
+        src/Settings.h
 )
 
 set(sources
-        src/Config.cpp
-        src/Config.h
         src/Crash/Introspection/Introspection.cpp
         src/Crash/Introspection/Introspection.h
         src/Crash/Modules/ModuleHandler.cpp
@@ -39,6 +37,8 @@ set(sources
         src/Crash/CrashHandler.cpp
         src/Crash/CrashHandler.h
         src/main.cpp
+        src/Settings.cpp
+        src/Settings.h
         src/PCH.cpp
         src/PCH.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc
@@ -70,22 +70,21 @@ include(GNUInstallDirs)
 # # Find dependencies
 # #######################################################################################################################
 find_package(CommonLibSSE CONFIG REQUIRED)
-find_package(ryml CONFIG REQUIRED)
 find_package(Boost
         MODULE
         REQUIRED
         COMPONENTS
         stacktrace_windbg
 )
+find_package(directxtk CONFIG REQUIRED)
 find_package(frozen REQUIRED CONFIG)
 find_package(infoware REQUIRED CONFIG)
 find_package(magic_enum CONFIG REQUIRED)
+find_path(CLIB_UTIL_INCLUDE_DIRS "ClibUtil/utils.hpp")
 find_package(zycore CONFIG REQUIRED)
 find_package(zydis CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(OpenVR REQUIRED)
-
-find_path(ARTICUNO_INCLUDE_DIRS "articuno/articuno.h")
 
 # https://github.com/microsoft/DirectXShaderCompiler/blob/main/cmake/modules/FindDiaSDK.cmake
 # Find the DIA SDK path.
@@ -192,7 +191,7 @@ target_include_directories(${PROJECT_NAME}
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/src>
         $<INSTALL_INTERFACE:src>
-        ${ARTICUNO_INCLUDE_DIRS})
+)
 
 if(DIASDK_LIBRARIES)
         target_include_directories(${PROJECT_NAME}
@@ -209,11 +208,12 @@ endif()
 
 target_include_directories(${PROJECT_NAME}
         PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        ${CLIB_UTIL_INCLUDE_DIRS}
+)
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        ryml::ryml
         Boost::stacktrace_windbg
         Dbghelp.lib
         frozen::frozen
@@ -251,7 +251,7 @@ if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDeb
                 COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
 endif()
 
-file(GLOB_RECURSE CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Config/*.yaml")
+file(GLOB_RECURSE CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Config/*.ini")
 file(GLOB_RECURSE OUTPUT_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.dll")
 file(GLOB_RECURSE OUTPUT_PDBS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pdb")
 file(GLOB_RECURSE OUTPUT_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pex")
@@ -272,9 +272,10 @@ foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
         endif()
+
         if(DIASDK_LIBRARIES)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
         endif()
 endforeach()
 

@@ -1,19 +1,16 @@
 #include "Crash/CrashHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 
-#include "Config.h"
+#include "Settings.h"
 #include <stddef.h>
 
-
-
-using namespace CrashLogger;
 using namespace SKSE;
 using namespace SKSE::log;
 using namespace SKSE::stl;
 
-
-namespace {
-    /**
+namespace
+{
+	/**
      * Setup logging.
      *
      * <p>
@@ -24,33 +21,44 @@ namespace {
      * (or <code>Skyrim VR</code> if you are using VR).
      * </p>
      */
-    void InitializeLogging() {
-        auto path = log_directory();
-        if (!path) {
-            report_and_fail("Unable to lookup SKSE logs directory.");
-        }
-        *path /= PluginDeclaration::GetSingleton()->GetName();
-        *path += L".log";
+	void InitializeLogging()
+	{
+		auto path = log_directory();
+		if (!path) {
+			report_and_fail("Unable to lookup SKSE logs directory.");
+		}
+		*path /= PluginDeclaration::GetSingleton()->GetName();
+		*path += L".log";
 
-        std::shared_ptr<spdlog::logger> log;
-        if (IsDebuggerPresent()) {
-            log = std::make_shared<spdlog::logger>(
-                "Global", std::make_shared<spdlog::sinks::msvc_sink_mt>());
-        } else {
-            log = std::make_shared<spdlog::logger>(
-                "Global", std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true));
-        }
-		const auto& debugConfig = Config::GetSingleton().GetDebug();
-		log->set_level(debugConfig.GetLogLevel());
-		log->flush_on(debugConfig.GetFlushLevel());
-
-        spdlog::set_default_logger(std::move(log));
-        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%t] [%s:%#] %v");
-
-
+		std::shared_ptr<spdlog::logger> log;
+		if (IsDebuggerPresent()) {
+			log = std::make_shared<spdlog::logger>(
+				"Global", std::make_shared<spdlog::sinks::msvc_sink_mt>());
+		} else {
+			log = std::make_shared<spdlog::logger>(
+				"Global", std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true));
+		}
+		auto loadError = false;
+		log->set_level(spdlog::level::level_enum::info);
+		log->flush_on(spdlog::level::level_enum::trace);
+		try {
+			Settings::GetSingleton()->Load();
+			if (auto config = Settings::GetSingleton(); config) {
+				const auto& debugConfig = config->GetDebug();
+				log->set_level(debugConfig.logLevel);
+				log->flush_on(debugConfig.flushLevel);
+			}
+		} catch (...) {
+			loadError = true;
+		}
+		spdlog::set_default_logger(std::move(log));
+		spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%t] [%s:%#] %v");
+		if (loadError)
+			logger::warn("Exception caught when loading settings! Default settings will be used");
+		logger::info("Log Level: {}", spdlog::level::to_string_view(spdlog::get_level()));
 	}
 
-    /**
+	/**
      * Initialize the SKSE cosave system for our plugin.
      *
      * <p>
@@ -66,12 +74,13 @@ namespace {
      * for the entire plugin.
      * </p>
      */
-    void InitializeSerialization() {
-        log::trace("Initializing cosave serialization...");
-        log::trace("Cosave serialization initialized.");
-    }
+	void InitializeSerialization()
+	{
+		log::trace("Initializing cosave serialization...");
+		log::trace("Cosave serialization initialized.");
+	}
 
-    /**
+	/**
      * Initialize our Papyrus extensions.
      *
      * <p>
@@ -85,16 +94,17 @@ namespace {
      * additional functions.
      * </p>
      */
-    void InitializePapyrus() {
-        /*log::trace("Initializing Papyrus binding...");
+	void InitializePapyrus()
+	{
+		/*log::trace("Initializing Papyrus binding...");
         if (GetPapyrusInterface()->Register(Sample::RegisterHitCounter)) {
             log::debug("Papyrus functions bound.");
         } else {
             stl::report_and_fail("Failure to register Papyrus bindings.");
         }*/
-    }
+	}
 
-    /**
+	/**
      * Initialize the trampoline space for function hooks.
      *
      * <p>
@@ -110,14 +120,15 @@ namespace {
      * suffice for our demo project.
      * </p>
      */
-    void InitializeHooking() {
-        log::trace("Initializing trampoline...");
-        auto& trampoline = GetTrampoline();
-        trampoline.create(64);
-        log::trace("Trampoline initialized.");
-    }
+	void InitializeHooking()
+	{
+		log::trace("Initializing trampoline...");
+		auto& trampoline = GetTrampoline();
+		trampoline.create(64);
+		log::trace("Trampoline initialized.");
+	}
 
-    /**
+	/**
      * Register to listen for messages.
      *
      * <p>
@@ -137,35 +148,36 @@ namespace {
      * message, and some messages have no data (<code>dataLen</code> will be zero).
      * </p>
      */
-    void InitializeMessaging() {
-        if (!GetMessagingInterface()->RegisterListener([](MessagingInterface::Message* message) {
-            switch (message->type) {
-                // Skyrim lifecycle events.
-                case MessagingInterface::kPostLoad: // Called after all plugins have finished running SKSEPlugin_Load.
-                    // It is now safe to do multithreaded operations, or operations against other plugins.
-                case MessagingInterface::kPostPostLoad: // Called after all kPostLoad message handlers have run.
-                case MessagingInterface::kInputLoaded: // Called when all game data has been found.
-                    break;
-                case MessagingInterface::kDataLoaded: // All ESM/ESL/ESP plugins have loaded, main menu is now active.
-                    // It is now safe to access form data.
-                    InitializeHooking();
-                    break;
+	void InitializeMessaging()
+	{
+		if (!GetMessagingInterface()->RegisterListener([](MessagingInterface::Message* message) {
+				switch (message->type) {
+				// Skyrim lifecycle events.
+				case MessagingInterface::kPostLoad:      // Called after all plugins have finished running SKSEPlugin_Load.
+														 // It is now safe to do multithreaded operations, or operations against other plugins.
+				case MessagingInterface::kPostPostLoad:  // Called after all kPostLoad message handlers have run.
+				case MessagingInterface::kInputLoaded:   // Called when all game data has been found.
+					break;
+				case MessagingInterface::kDataLoaded:  // All ESM/ESL/ESP plugins have loaded, main menu is now active.
+					// It is now safe to access form data.
+					InitializeHooking();
+					break;
 
-                // Skyrim game events.
-                case MessagingInterface::kNewGame: // Player starts a new game from main menu.
-                case MessagingInterface::kPreLoadGame: // Player selected a game to load, but it hasn't loaded yet.
-                    // Data will be the name of the loaded save.
-                case MessagingInterface::kPostLoadGame: // Player's selected save game has finished loading.
-                    // Data will be a boolean indicating whether the load was successful.
-                case MessagingInterface::kSaveGame: // The player has saved a game.
-                    // Data will be the save name.
-                case MessagingInterface::kDeleteGame: // The player deleted a saved game from within the load menu.
-                    break;
-            }
-        })) {
-            stl::report_and_fail("Unable to register message listener.");
-        }
-    }
+				// Skyrim game events.
+				case MessagingInterface::kNewGame:       // Player starts a new game from main menu.
+				case MessagingInterface::kPreLoadGame:   // Player selected a game to load, but it hasn't loaded yet.
+														 // Data will be the name of the loaded save.
+				case MessagingInterface::kPostLoadGame:  // Player's selected save game has finished loading.
+														 // Data will be a boolean indicating whether the load was successful.
+				case MessagingInterface::kSaveGame:      // The player has saved a game.
+														 // Data will be the save name.
+				case MessagingInterface::kDeleteGame:    // The player deleted a saved game from within the load menu.
+					break;
+				}
+			})) {
+			stl::report_and_fail("Unable to register message listener.");
+		}
+	}
 }
 /**
  * This if the main callback for initializing your SKSE plugin, called just before Skyrim runs its main function.
@@ -177,19 +189,19 @@ namespace {
  * tasks.
  * </p>
  */
-SKSEPluginLoad(const LoadInterface* skse) {
-    InitializeLogging();
+SKSEPluginLoad(const LoadInterface* skse)
+{
+	InitializeLogging();
 	auto* plugin = PluginDeclaration::GetSingleton();
 	auto version = plugin->GetVersion();
 	log::info("NOTE: This is not a crashlog. Crashlogs have the name crash-[TIMESTAMP].log");
 	log::info("{} {} {} {} is loading...", plugin->GetName(), version, __DATE__, __TIME__);
-    Init(skse);
+	Init(skse);
 	Crash::Install();
-    //InitializeMessaging();
-    //InitializeSerialization();
-    //InitializePapyrus();
+	//InitializeMessaging();
+	//InitializeSerialization();
+	//InitializePapyrus();
 	//Crash::PDB::dump_symbols(true); // dump exe info
 	log::info("{} has finished loading.", plugin->GetName());
 	return true;
 }
-

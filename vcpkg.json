@@ -10,9 +10,10 @@
     "plugin": {
       "description": "Build the SKSE plugin.",
       "dependencies": [
-        "articuno",
         "boost-stacktrace",
         "commonlibsse-ng",
+        "clib-util",
+        "directxtk",
         "frozen",
         {
           "name": "infoware",
@@ -44,11 +45,5 @@
   "default-features": [
     "plugin"
   ],
-  "builtin-baseline": "6f7ffeb18f99796233b958aaaf14ec7bd4fb64b2",
-  "overrides": [
-    {
-      "name": "fmt",
-      "version": "8.0.1"
-    }
-  ]
+  "builtin-baseline": "17d868f8eb8afcc5c2ab735a17ab730bbb0fef28"
 }
