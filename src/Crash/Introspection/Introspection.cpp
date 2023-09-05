@@ -1313,6 +1313,32 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		};
 	};
+	class ExtraLeveledItem
+	{
+	public:
+		using value_type = RE::ExtraLeveledItem;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto formID = object->levItem;
+				a_results.emplace_back(
+					fmt::format(
+						"{:\t>{}}FormID"sv,
+						"",
+						tab_depth),
+					fmt::format(
+						"0x{:08X}"sv,
+						formID));
+				const auto target = RE::TESForm::LookupByID(formID);
+				TESForm<RE::TESForm>::filter(a_results, target, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
 }
 
 namespace Crash::Introspection
@@ -1501,6 +1527,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
+				std::make_pair(".?AVExtraLeveledItem@@"sv, SSE::ExtraLeveledItem::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkaAnimationBinding@@"sv, SSE::hkaAnimationBinding::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
