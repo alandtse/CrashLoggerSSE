@@ -58,6 +58,33 @@ namespace
 		logger::info("Log Level: {}", spdlog::level::to_string_view(spdlog::get_level()));
 	}
 
+	std::string SetupCrashLogPath()
+	{
+		std::optional<std::filesystem::path> path;
+		const auto& debugConfig = Settings::GetSingleton()->GetDebug();
+		if (!debugConfig.crashDirectory.empty()) {
+			path.emplace(debugConfig.crashDirectory);
+		} else {
+			if (!logger::log_directory()) {
+				util::report_and_fail("failed to find standard log directory"sv);
+			}
+			path = logger::log_directory();
+		}
+		try {
+			if (!std::filesystem::exists(path.value())) {
+				std::filesystem::create_directories(path.value());
+			}
+		} 
+		catch (const std::filesystem::filesystem_error& e) {
+			auto errorString = std::format("Unable to create Crashlog output directory: {}", e.what());
+			util::report_and_fail(errorString);
+		}
+		if (path.has_value()) {
+			return path.value().string();
+		}
+		return "";
+	}
+
 	/**
      * Initialize the SKSE cosave system for our plugin.
      *
@@ -197,7 +224,7 @@ SKSEPluginLoad(const LoadInterface* skse)
 	log::info("NOTE: This is not a crashlog. Crashlogs have the name crash-[TIMESTAMP].log");
 	log::info("{} {} {} {} is loading...", plugin->GetName(), version, __DATE__, __TIME__);
 	Init(skse);
-	Crash::Install();
+	Crash::Install(SetupCrashLogPath());
 	//InitializeMessaging();
 	//InitializeSerialization();
 	//InitializePapyrus();

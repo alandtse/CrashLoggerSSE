@@ -38,5 +38,6 @@ namespace Crash
 		std::span<const boost::stacktrace::frame> _frames;
 	};
 
-	void Install();
+	void Install(std::string a_crashPath);
+	static std::string crashPath;
 }

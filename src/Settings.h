@@ -12,6 +12,7 @@ public:
 		spdlog::level::level_enum flushLevel{ spdlog::level::level_enum::trace };
 		bool waitForDebugger{ false };
 		std::string symcache{ "" };
+		std::string crashDirectory{ "" };
 	};
 
 	[[nodiscard]] static Settings* GetSingleton();

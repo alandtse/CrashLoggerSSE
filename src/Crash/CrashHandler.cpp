@@ -129,11 +129,7 @@ namespace Crash
 	{
 		[[nodiscard]] std::shared_ptr<spdlog::logger> get_log()
 		{
-			auto path = logger::log_directory();
-			if (!path) {
-				util::report_and_fail("failed to find standard log directory"sv);
-			}
-
+			std::optional<std::filesystem::path> path = crashPath;
 			const auto time = std::time(nullptr);
 			std::tm localTime{};
 			if (gmtime_s(&localTime, &time) != 0) {
@@ -555,7 +551,7 @@ namespace Crash
 		}
 	}  // namespace
 
-	void Install()
+	void Install(std::string a_crashPath)
 	{
 		const auto success =
 			::AddVectoredExceptionHandler(1, reinterpret_cast<::PVECTORED_EXCEPTION_HANDLER>(&VectoredExceptions));
@@ -563,5 +559,9 @@ namespace Crash
 			util::report_and_fail("failed to install vectored exception handler"sv);
 		}
 		logger::info("installed crash handlers"sv);
+		if (!a_crashPath.empty()) {
+			crashPath = a_crashPath;
+			logger::info("Crash Logs will be written to {}", crashPath);
+		}
 	}
 }  // namespace Crash

@@ -29,6 +29,8 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, flushLevel, section, "Flush Level", ";Log level to force messages to print from buffer.");
 	get_value(a_ini, waitForDebugger, section, "Wait for Debugger for Crash", ";Enable if using VisualStudio to debug CrashLogger; Set false otherwise because Crashlogger will not produce a crash until the debugger is detected.");
 	get_value(a_ini, symcache, section, "Symcache Directory", ";Local symbol cache directory.");
+	std::string crashDirectoryComment = std::format("; Crashlog output directory. If blank, defaults to \"Documents\\my games\\{}\\SKSE\\\"", !REL::Module::IsVR() ? "Skyrim Special Edition" : "Skyrim VR");
+	get_value(a_ini, crashDirectory, section, "Crashlog Directory", crashDirectoryComment.c_str());
 }
 
 const Settings::Debug& Settings::GetDebug() const
