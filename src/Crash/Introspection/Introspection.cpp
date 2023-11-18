@@ -1338,6 +1338,53 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		};
 	};
+
+	class ScriptEffect
+	{
+	public:
+		using value_type = RE::ScriptEffect;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+
+			if (!object)
+				return;
+			try {
+				const auto script = object->script;
+				if (script && script->text && script->text[0])
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Script Text"sv,
+							"",
+							tab_depth),
+						quoted(script->text));
+				if (script && script->parentQuest) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Parent Quest"sv,
+							"",
+							tab_depth),
+						""sv);
+					TESQuest::filter(a_results, script->parentQuest, tab_depth + 1);
+				}
+			} catch (...) {}
+			try {
+				const auto scriptLocals = object->effectLocals;
+				if (scriptLocals && scriptLocals->masterScript) {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}Master Script"sv,
+							""sv,
+							tab_depth),
+						""sv);
+					ScriptEffect::filter(a_results, scriptLocals->masterScript, tab_depth + 1);
+				}
+			} catch (...) {}
+		}
+	};
 }
 
 namespace Crash::Introspection
@@ -1541,6 +1588,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
 				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
+				std::make_pair(".?AVScriptEffect@@"sv, SSE::ScriptEffect::filter),
 				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
 				std::make_pair(".?AVTESForm@@"sv, SSE::TESForm<RE::TESForm>::filter),
 				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
