@@ -74,8 +74,7 @@ namespace
 			if (!std::filesystem::exists(path.value())) {
 				std::filesystem::create_directories(path.value());
 			}
-		} 
-		catch (const std::filesystem::filesystem_error& e) {
+		} catch (const std::filesystem::filesystem_error& e) {
 			auto errorString = std::format("Unable to create Crashlog output directory: {}", e.what());
 			util::report_and_fail(errorString);
 		}

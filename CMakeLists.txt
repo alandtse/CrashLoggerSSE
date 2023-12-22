@@ -156,8 +156,8 @@ endif()
 # # Configuration for all targets
 # #######################################################################################################################
 add_compile_definitions(
-		SPDLOG_COMPILED_LIB
-		SPDLOG_FMT_EXTERNAL)
+        SPDLOG_COMPILED_LIB
+        SPDLOG_FMT_EXTERNAL)
 
 if(WIN32)
         add_compile_definitions(

@@ -17,9 +17,7 @@
         "frozen",
         {
           "name": "infoware",
-          "features": [
-            "d3d"
-          ]
+          "features": ["d3d"]
         },
         "magic-enum",
         "openvr",
@@ -34,16 +32,12 @@
         {
           "name": "crashloggersse",
           "default-features": false,
-          "features": [
-            "plugin"
-          ]
+          "features": ["plugin"]
         },
         "catch2"
       ]
     }
   },
-  "default-features": [
-    "plugin"
-  ],
-  "builtin-baseline": "4a600e9fea71bd7872080cbb716797e04d30e6d3"
+  "default-features": ["plugin"],
+  "builtin-baseline": "e6aabd1415a1fc9f5e76deb3c5a40e27300aef2a"
 }
