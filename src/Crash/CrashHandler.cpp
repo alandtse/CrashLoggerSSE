@@ -6,6 +6,7 @@
 #include "dxgi1_4.h"
 #include <Settings.h>
 #include <openvr.h>
+#include <vmaware.hpp>
 using namespace vr;
 
 namespace Crash
@@ -383,6 +384,11 @@ namespace Crash
 			adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
 			a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
 				gibibyte(videoMemoryInfo.Budget));
+
+			// Detect VM
+			if (VM::detect()) {
+				a_log.critical("\tDetected Virtual Machine: {} ({}%)"sv, VM::brand(), VM::percentage());
+			}
 		}
 
 		void print_vrinfo(spdlog::logger& a_log)

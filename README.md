@@ -33,7 +33,10 @@ cd CrashLoggerSSE
 ```
 Open folder in Visual Studio and build. If `SkyrimPluginTargets` is set, then compiled dlls/pdb will be copied to `${SkyrimPluginTargets}/SKSE/Plugins/`.
 ## License
-[MIT](LICENSE)
+[GPL-3.0-or-later](COPYING) WITH [Modding Exception AND GPL-3.0 Linking Exception (with Corresponding Source)](EXCEPTIONS.md).  
+Specifically, the Modded Code is Skyrim (and its variants) and Modding Libraries include [SKSE](https://skse.silverlock.org/), Commonlib (and variants), and Windows.
+
+Originally based on code under [MIT](LICENSE)
 
 PDB requires `msdia140.dll` distributed under [Visual Studio C++ Redistributable](https://docs.microsoft.com/en-us/visualstudio/releases/2022/redistribution#dia-sdk)
 

@@ -22,6 +22,7 @@
         "magic-enum",
         "openvr",
         "rsm-binary-io",
+        "vmaware",
         "zycore",
         "zydis"
       ]
