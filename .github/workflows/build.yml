@@ -22,7 +22,7 @@ jobs:
         os: [windows-latest]
         include:
           - os: windows-latest
-            vcpkgCommitId: "39e1b567804cad0e8383efacce0fdeed4901ec37"
+            vcpkgCommitId: "a164ace504d8fe6f50aeec7e235d22b9089ad0d5"
 
     steps:
       - uses: actions/checkout@v3
