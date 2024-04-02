@@ -5,6 +5,7 @@
 #include "PdbHandler.h"
 #include "Settings.h"
 #include <comdef.h>
+#include <atlcomcli.h>
 
 namespace Crash
 {

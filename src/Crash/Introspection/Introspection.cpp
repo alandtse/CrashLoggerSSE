@@ -4,6 +4,7 @@
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <magic_enum.hpp>
+#include <DbgHelp.h>
 
 namespace Crash::Introspection::SSE
 {
@@ -1479,20 +1480,20 @@ namespace Crash::Introspection
 				const auto demangle = [](const char* a_in, char* a_out, std::uint32_t a_size) {
 					static std::mutex m;
 					std::lock_guard l{ m };
-					return ::WinAPI::UnDecorateSymbolName(
+					return UnDecorateSymbolName(
 						a_in,
 						a_out,
 						a_size,
-						(::WinAPI::UNDNAME_NO_MS_KEYWORDS) |
-							(::WinAPI::UNDNAME_NO_FUNCTION_RETURNS) |
-							(::WinAPI::UNDNAME_NO_ALLOCATION_MODEL) |
-							(::WinAPI::UNDNAME_NO_ALLOCATION_LANGUAGE) |
-							(::WinAPI::UNDNAME_NO_THISTYPE) |
-							(::WinAPI::UNDNAME_NO_ACCESS_SPECIFIERS) |
-							(::WinAPI::UNDNAME_NO_THROW_SIGNATURES) |
-							(::WinAPI::UNDNAME_NO_RETURN_UDT_MODEL) |
-							(::WinAPI::UNDNAME_NAME_ONLY) |
-							(::WinAPI::UNDNAME_NO_ARGUMENTS) |
+						(UNDNAME_NO_MS_KEYWORDS) |
+							(UNDNAME_NO_FUNCTION_RETURNS) |
+							(UNDNAME_NO_ALLOCATION_MODEL) |
+							(UNDNAME_NO_ALLOCATION_LANGUAGE) |
+							(UNDNAME_NO_THISTYPE) |
+							(UNDNAME_NO_ACCESS_SPECIFIERS) |
+							(UNDNAME_NO_THROW_SIGNATURES) |
+							(UNDNAME_NO_RETURN_UDT_MODEL) |
+							(UNDNAME_NAME_ONLY) |
+							(UNDNAME_NO_ARGUMENTS) |
 							static_cast<std::uint32_t>(0x8000));  // Disable enum/class/struct/union prefix
 				};
 

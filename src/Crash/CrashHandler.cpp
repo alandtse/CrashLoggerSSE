@@ -4,54 +4,9 @@
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "dxgi1_4.h"
-
-#define NOGDICAPMASKS
-#define NOVIRTUALKEYCODES
-#define NOWINMESSAGES
-#define NOWINSTYLES
-#define NOSYSMETRICS
-#define NOMENUS
-#define NOICONS
-#define NOKEYSTATES
-#define NOSYSCOMMANDS
-#define NORASTEROPS
-#define NOSHOWWINDOW
-#define OEMRESOURCE
-#define NOATOM
-#define NOCLIPBOARD
-#define NOCOLOR
-#define NOCTLMGR
-#define NODRAWTEXT
-#define NOGDI
-#define NOKERNEL
-#define NOUSER
-#define NONLS
-#define NOMB
-#define NOMEMMGR
-#define NOMETAFILE
-#define NOMSG
-#define NOOPENFILE
-#define NOSCROLL
-#define NOSERVICE
-#define NOSOUND
-#define NOTEXTMETRIC
-#define NOWH
-#define NOWINOFFSETS
-#define NOCOMM
-#define NOKANJI
-#define NOHELP
-#define NOPROFILER
-#define NODEFERWINDOWPOS
-#define NOMCX
-
-#include <winternl.h>
-
 #include <Settings.h>
 #include <openvr.h>
 using namespace vr;
-
-#undef max
-#undef min
 
 namespace Crash
 {
@@ -234,7 +189,7 @@ namespace Crash
 					std::filesystem::path pluginDir{ Crash::PDB::sPluginPath };
 					std::filesystem::path filename = pluginDir.append(m);
 					if (std::filesystem::exists(filename))
-						plugins.emplace_back(*std::move(std::make_optional(m)), REL::get_file_version(filename.wstring()));
+						plugins.emplace_back(*std::move(std::make_optional(m)), REL::GetFileVersion(filename.wstring()));
 				} catch (const std::exception& e) {
 					a_log.critical("Skipping module {}:{}"sv, m, e.what());
 				}
@@ -492,9 +447,9 @@ namespace Crash
 			try {
 				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 				if (debugConfig.waitForDebugger) {
-					while (!::WinAPI::IsDebuggerPresent()) {
+					while (!IsDebuggerPresent()) {
 					}
-					if (::WinAPI::IsDebuggerPresent())
+					if (IsDebuggerPresent())
 						DebugBreak();
 				}
 				static std::mutex sync;
@@ -541,7 +496,7 @@ namespace Crash
 				print([&]() { print_plugins(*log); }, "print_plugins");
 			} catch (...) {}
 
-			::WinAPI::TerminateProcess(::WinAPI::GetCurrentProcess(), EXIT_FAILURE);
+			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
 		}
 
 		std::int32_t _stdcall VectoredExceptions(::EXCEPTION_POINTERS*) noexcept

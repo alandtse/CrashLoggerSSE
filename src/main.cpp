@@ -2,7 +2,6 @@
 #include "Crash/PDB/PdbHandler.h"
 
 #include "Settings.h"
-#include <stddef.h>
 
 using namespace SKSE;
 using namespace SKSE::log;
