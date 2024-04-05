@@ -13,7 +13,7 @@ namespace Crash
 	{
 		std::atomic<bool> symcacheChecked = false;
 		std::atomic<bool> symcacheValid = false;
-
+		static HRESULT hr {-1};
 		//https://stackoverflow.com/questions/6284524/bstr-to-stdstring-stdwstring-and-vice-versa
 		std::string ConvertWCSToMBS(const wchar_t* pstr, long wslen)
 		{
@@ -129,6 +129,8 @@ namespace Crash
 		//https://stackoverflow.com/questions/68412597/determining-source-code-filename-and-line-for-function-using-visual-studio-pdb
 		std::string pdb_details(std::string_view a_name, uintptr_t a_offset)
 		{
+			static std::mutex sync;
+			const std::lock_guard l{ sync };
 			std::string result = "";
 			//if (a_name.ends_with("exe")) //ignore exe since pdbs not readily available for bethesda exes
 			//	return result;
@@ -138,7 +140,9 @@ namespace Crash
 				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
 			auto rva = (DWORD)a_offset;
 			CComPtr<IDiaDataSource> pSource;
-			auto hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+			if (!SUCCEEDED(hr)) {
+				hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+			}
 			if (FAILED(hr)) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to initalize COM library for dll {}+{:07X}\t{}", a_name, a_offset, error);
