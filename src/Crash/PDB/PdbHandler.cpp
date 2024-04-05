@@ -182,7 +182,7 @@ namespace Crash
 				symcacheChecked = true;
 			}
 			if (symcacheValid) {
-				searchPaths.push_back(fmt::format("cache*{}"s, symcache.c_str()));
+				searchPaths.push_back(fmt::format(fmt::runtime("cache*{}"s), symcache.c_str()));
 			}
 			auto foundPDB = false;
 			for (const auto& path : searchPaths) {

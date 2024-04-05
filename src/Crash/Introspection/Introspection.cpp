@@ -374,7 +374,7 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 
 			try {
-				const auto flags = object->GetFlags();
+				const auto& flags = object->GetFlags();
 				std::string flagString = "";
 				constexpr auto flagEntries = magic_enum::enum_entries<RE::NiAVObject::Flag>();
 				for (const auto& entry : flagEntries) {
@@ -1268,11 +1268,11 @@ namespace Crash::Introspection::SSE
 				std::string stackTrace = "\n";
 				std::map<std::string, bool> objectReferences;
 				while (currentStackFrame) {
-					auto function = currentStackFrame->owningFunction;
-					auto functionObjecTypeName = function.get()->GetObjectTypeName();
-					auto functionName = function.get()->GetName();
+					auto& function = currentStackFrame->owningFunction;
+					auto& functionObjecTypeName = function.get()->GetObjectTypeName();
+					auto& functionName = function.get()->GetName();
 					auto objectInstanceString = RE::BSFixedString("None");
-					auto objectRef = currentStackFrame->self;
+					auto& objectRef = currentStackFrame->self;
 					if (objectRef.IsObject()) {
 						auto objectHandle = objectRef.GetObject().get()->GetHandle();
 						handlePolicy.ConvertHandleToString(objectHandle, objectInstanceString);
@@ -1283,7 +1283,7 @@ namespace Crash::Introspection::SSE
 						if (!formIDString.empty())
 							objectReferences.emplace(formIDString, true);
 					}
-					auto sourceFileName = function->GetSourceFilename();
+					auto& sourceFileName = function->GetSourceFilename();
 					auto traceFormatString = "{:\t>{}}[{}].{}.{}() - \"{}\" Line {}\n";  // Same format in Papyrus logs
 					std::string lineTrace = "";
 					if (function.get()->GetIsNative()) {
@@ -1303,7 +1303,7 @@ namespace Crash::Introspection::SSE
 						tab_depth),
 					stackTrace);
 				for (auto& objectReference : objectReferences) {
-					const auto objectString = objectReference.first;
+					const auto& objectString = objectReference.first;
 					const auto modIndex = std::stoi(objectString.substr(0, 2), nullptr, 16);
 					const auto form = std::stoi(objectString.substr(3, objectString.size()), nullptr, 16);
 					const auto target = datahandler->LookupForm(form, datahandler->LookupLoadedModByIndex(modIndex)->GetFilename());
