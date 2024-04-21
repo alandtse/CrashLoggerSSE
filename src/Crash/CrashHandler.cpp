@@ -386,7 +386,7 @@ namespace Crash
 				gibibyte(videoMemoryInfo.Budget));
 
 			// Detect VM
-			if (VM::detect(VM::DEFAULT & ~(static_cast < std::bitset<89>>(VM::GAMARUE)))) {
+			if (VM::detect(VM::DEFAULT & ~(static_cast < std::bitset<93>>(VM::GAMARUE)))) {
 				a_log.critical("\tDetected Virtual Machine: {} ({}%)"sv, VM::brand(VM::MULTIPLE), VM::percentage());
 			}
 		}
