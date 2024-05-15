@@ -319,6 +319,26 @@ namespace Crash::Introspection::SSE
 						"None");
 				}
 			} catch (...) {}
+
+			try {
+				const auto parentCell = ref->GetParentCell();
+				if (parentCell)				{
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}ParentCell"sv,
+							"",
+							tab_depth),
+						"---");
+					TESForm<RE::TESObjectCELL>::filter(a_results, parentCell, tab_depth + 1);
+				} else {
+					a_results.emplace_back(
+						fmt::format(
+							"{:\t>{}}ParentCell"sv,
+							"",
+							tab_depth),
+						"None");
+				}
+			} catch (...) {}
 		}
 	};
 
