@@ -10,6 +10,7 @@ namespace Crash
 		void dumpFileSymbols(const std::filesystem::path& path, int& retflag);
 
 		const std::string_view sPluginPath = "Data/SKSE/Plugins"sv;
+		static HRESULT hr{ -1 };
 	}
 }
 

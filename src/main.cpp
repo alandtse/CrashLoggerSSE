@@ -228,5 +228,6 @@ SKSEPluginLoad(const LoadInterface* skse)
 	//InitializePapyrus();
 	//Crash::PDB::dump_symbols(true); // dump exe info
 	log::info("{} has finished loading.", plugin->GetName());
+	Crash::PDB::hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 	return true;
 }

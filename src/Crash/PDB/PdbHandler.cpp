@@ -13,7 +13,6 @@ namespace Crash
 	{
 		std::atomic<bool> symcacheChecked = false;
 		std::atomic<bool> symcacheValid = false;
-		static HRESULT hr {-1};
 		//https://stackoverflow.com/questions/6284524/bstr-to-stdstring-stdwstring-and-vice-versa
 		std::string ConvertWCSToMBS(const wchar_t* pstr, long wslen)
 		{
