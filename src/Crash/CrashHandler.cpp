@@ -189,6 +189,40 @@ namespace Crash
 
 			a_log.critical("Unhandled exception{} at 0x{:012X}{}"sv, exception, eaddr, post);
 
+			// Log exception flags
+			a_log.critical("Exception Flags: 0x{:08X}"sv, a_exception.ExceptionFlags);
+
+			// Log number of parameters
+			a_log.critical("Number of Parameters: {}"sv, a_exception.NumberParameters);
+
+			// Log additional exception information for specific exception types
+			if (a_exception.ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+				const auto accessType = a_exception.ExceptionInformation[0] == 0 ? "read" :
+				                        a_exception.ExceptionInformation[0] == 1 ? "write" :
+				                        a_exception.ExceptionInformation[0] == 8 ? "execute" :
+				                                                                   "unknown";
+				const auto faultAddress = a_exception.ExceptionInformation[1];
+				a_log.critical("Access Violation: Tried to {} memory at 0x{:012X}"sv, accessType, faultAddress);
+			} else if (a_exception.ExceptionCode == EXCEPTION_IN_PAGE_ERROR) {
+				const auto accessType = a_exception.ExceptionInformation[0] == 0 ? "read" :
+				                        a_exception.ExceptionInformation[0] == 1 ? "write" :
+				                        a_exception.ExceptionInformation[0] == 8 ? "execute" :
+				                                                                   "unknown";
+				const auto faultAddress = a_exception.ExceptionInformation[1];
+				const auto ntStatus = a_exception.ExceptionInformation[2];
+				a_log.critical("In-Page Error: Tried to {} memory at 0x{:012X}, NTSTATUS: 0x{:08X}"sv, accessType, faultAddress, ntStatus);
+			} else if (a_exception.NumberParameters > 0) {
+				a_log.critical("Exception Information Parameters:");
+				for (std::size_t i = 0; i < a_exception.NumberParameters; ++i) {
+					a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, a_exception.ExceptionInformation[i]);
+				}
+			}
+
+			// Check for nested exceptions
+			if (a_exception.ExceptionRecord) {
+				a_log.critical("Nested Exception:");
+				print_exception(a_log, *a_exception.ExceptionRecord, a_modules);  // Recursively print nested exception
+			}
 #undef EXCEPTION_CASE
 		}
 
