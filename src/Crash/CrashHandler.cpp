@@ -132,8 +132,7 @@ namespace Crash
 			return log;
 		}
 
-		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception,
-			std::span<const module_pointer> a_modules)
+		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules)
 		{
 #define EXCEPTION_CASE(a_code) \
 	case a_code:               \
@@ -447,7 +446,7 @@ namespace Crash
 				gibibyte(videoMemoryInfo.Budget));
 
 			// Detect VM
-			if (VM::detect(VM::DEFAULT & ~(static_cast < std::bitset<92>>(VM::GAMARUE)))) {
+			if (VM::detect(VM::DEFAULT & ~(static_cast<std::bitset<92>>(VM::GAMARUE)))) {
 				a_log.critical("\tDetected Virtual Machine: {} ({}%)"sv, VM::brand(VM::MULTIPLE), VM::percentage());
 			}
 		}
@@ -542,8 +541,7 @@ namespace Crash
 				};
 
 				const auto runtimeVer = REL::Module::get().version();
-				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1],
-					runtimeVer[2]);
+				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
 				log->critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
 				log->flush();
 
@@ -552,11 +550,10 @@ namespace Crash
 				if (REL::Module::IsVR())
 					print([&]() { print_vrinfo(*log); }, "print_vrinfo");
 
-				print(
-					[&]() {
-						const Callstack callstack{ *a_exception->ExceptionRecord };
-						callstack.print(*log, cmodules);
-					},
+				print([&]() {
+					const Callstack callstack{ *a_exception->ExceptionRecord };
+					callstack.print(*log, cmodules);
+				},
 					"probable_callstack");
 
 				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
