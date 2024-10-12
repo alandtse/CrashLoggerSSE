@@ -11,6 +11,33 @@ using namespace vr;
 
 namespace Crash
 {
+	class SEHException : public std::exception
+	{
+	public:
+		SEHException(const std::string& message, DWORD code) :
+			_message(message), _code(code) {}
+
+		const char* what() const noexcept override
+		{
+			return _message.c_str();
+		}
+
+		DWORD code() const noexcept
+		{
+			return _code;
+		}
+
+	private:
+		std::string _message;
+		DWORD _code;
+	};
+
+	// SEH to C++ exception translator function
+	void seh_translator(unsigned int code, EXCEPTION_POINTERS* info)
+	{
+		throw SEHException("SEH Exception occurred", code);
+	}
+
 	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
 	{
 		const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
@@ -450,6 +477,9 @@ namespace Crash
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
+			// Install the SEH-to-C++ exception translator
+			_set_se_translator(seh_translator);
+
 			try {
 				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 				if (debugConfig.waitForDebugger) {
@@ -500,7 +530,20 @@ namespace Crash
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
-			} catch (...) {}
+
+			} catch (const SEHException& se) {
+				// Log the SEH exception converted to a C++ exception
+				const auto log = get_log();
+				log->critical("SEH Exception caught: {} (Code: 0x{:X})", se.what(), se.code());
+			} catch (const std::exception& e) {
+				// Log the C++ exception
+				const auto log = get_log();
+				log->critical("Caught C++ exception: {}", e.what());
+			} catch (...) {
+				// Catch any other unknown exception
+				const auto log = get_log();
+				log->critical("Caught an unknown exception");
+			}
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
 		}
