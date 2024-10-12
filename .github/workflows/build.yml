@@ -23,7 +23,6 @@ env:
   FILENAME: CrashLogger # Define the filename here to use globally
 
 jobs:
-jobs:
   semantic_release:
     name: Semantic Release
     runs-on: windows-latest
