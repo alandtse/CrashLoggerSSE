@@ -65,16 +65,33 @@ jobs:
           submodules: true
       - name: Check if GitHub release tag exists
         id: check_release
+        shell: pwsh
         run: |
-          $RELEASE_VERSION = git describe --tags --abbrev=0
-          echo "release_version=$RELEASE_VERSION" >> $env:GITHUB_ENV
-          $assets = curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" `
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_VERSION" | `
-            ConvertFrom-Json | Select-Object -ExpandProperty assets | Select-Object -ExpandProperty name
+          $RELEASE_VERSION = git describe --tags --abbrev=0 2>$null
 
-          if ($assets -contains "${{ env.FILENAME }}_$RELEASE_VERSION.7z") {
-            echo "asset_exists=true" >> $env:GITHUB_ENV
+          if (-not $RELEASE_VERSION) {
+            Write-Host "No tags found in the repository."
+            echo "asset_exists=false" >> $env:GITHUB_ENV
+            exit 0
+          }
+
+          echo "release_version=$RELEASE_VERSION" >> $env:GITHUB_ENV
+
+          $response = curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" `
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_VERSION"
+
+          $json = $response | ConvertFrom-Json
+
+          if ($json -and $json.assets) {
+            $assets = $json.assets | Select-Object -ExpandProperty name
+            
+            if ($assets -contains "${{ env.FILENAME }}_$RELEASE_VERSION.7z") {
+              echo "asset_exists=true" >> $env:GITHUB_ENV
+            } else {
+              echo "asset_exists=false" >> $env:GITHUB_ENV
+            }
           } else {
+            Write-Host "No valid response or assets found for the release."
             echo "asset_exists=false" >> $env:GITHUB_ENV
           }
       - name: Extract vcpkgGitCommitId from vcpkg.json
