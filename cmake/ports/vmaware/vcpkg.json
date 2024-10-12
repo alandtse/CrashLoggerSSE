@@ -1,6 +1,6 @@
 {
   "name": "vmaware",
-  "version-string": "1.2",
+  "version-string": "1.9",
   "port-version": 1,
   "description": "VMAware (VM + Aware) is a cross-platform C++ library for virtual machine detection.",
   "homepage": "https://github.com/kernelwernel/VMAware"
