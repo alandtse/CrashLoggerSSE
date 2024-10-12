@@ -22,18 +22,14 @@ jobs:
         os: [windows-latest]
         include:
           - os: windows-latest
-            vcpkgCommitId: "a164ace504d8fe6f50aeec7e235d22b9089ad0d5"
+            vcpkgCommitId: "9558037875497b9db8cf38fcd7db68ec661bffe7"
+    if: github.repository_owner == 'alandtse'
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: "true"
       - uses: lukka/get-cmake@latest
-      - name: Dump the content of $RUNNER_TEMP
-        run: find $RUNNER_TEMP
-        shell: bash
-      - name: Dump the content of $RUNNER_WORKSPACE
-        run: find $RUNNER_WORKSPACE
-        shell: bash
-
       - name: Restore artifacts, or setup vcpkg (do not install any package)
         uses: lukka/run-vcpkg@v10
         id: runvcpkg
@@ -94,7 +90,7 @@ jobs:
         # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
         if: steps.semantic.outputs.new_release_published == 'true'
         env:
-          UNEX_COOKIES: ${{ secrets.UNEX_COOKIES }}
+          UNEX_SESSION_COOKIE: ${{ secrets.NEXUSMODS_SESSION_COOKIE }}
           UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
           UNEX_GAME: skyrimspecialedition
           UNEX_MODID: 59818
@@ -108,4 +104,4 @@ jobs:
           changelog: ${{ steps.semantic.outputs.new_release_notes }}
         run: |
           unex upload $UNEX_MODID $file -v $version
-          unex changelog $version "$changelog"
+          unex changelog $version -c "$changelog"
