@@ -75,6 +75,7 @@ jobs:
             echo "asset_exists=true" >> $GITHUB_ENV
           else
             echo "asset_exists=false" >> $GITHUB_ENV
+          fi
       - name: Extract vcpkgGitCommitId from vcpkg.json
         id: extract_commit_id
         run: |
