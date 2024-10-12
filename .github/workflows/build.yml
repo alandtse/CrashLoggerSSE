@@ -19,6 +19,7 @@ on:
         description: "Trigger Nexus upload"
         required: false
         default: "false"
+
 env:
   FILENAME: CrashLogger # Define the filename here to use globally
 
@@ -26,11 +27,11 @@ jobs:
   semantic_release:
     name: Semantic Release
     runs-on: windows-latest
-    if: github.repository_owner == 'alandtse'
+    if: ${{ github.repository_owner == 'alandtse' }}
     steps:
       - uses: actions/checkout@v3
         with:
-          submodules: "true"
+          submodules: true
       - uses: lukka/get-cmake@latest
       - name: Setup node
         uses: actions/setup-node@v4
@@ -51,18 +52,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Set output release status
         id: set_release_output
-        run: echo "::set-output name=new_release::${{ steps.semantic.outputs.new_release_published }}"
+        run: echo "new_release=${{ steps.semantic.outputs.new_release_published }}" >> $GITHUB_ENV
 
   build_cmake:
     name: Build with CMake
     runs-on: windows-latest
-    if: github.repository_owner == 'alandtse'
+    if: ${{ github.repository_owner == 'alandtse' }}
     needs: semantic_release
     steps:
       - uses: actions/checkout@v3
         with:
-          submodules: "true"
-
+          submodules: true
       - name: Check if GitHub release tag exists
         id: check_release
         run: |
@@ -73,31 +73,24 @@ jobs:
             | jq -r '.assets[]?.name' > assets.txt
           if grep -q "${{ env.FILENAME }}_${RELEASE_VERSION}.7z" assets.txt; then
             echo "asset_exists=true" >> $GITHUB_ENV
-            echo "::set-output name=asset_exists::true"
           else
             echo "asset_exists=false" >> $GITHUB_ENV
-            echo "::set-output name=asset_exists::false"
-          fi
-
       - name: Extract vcpkgGitCommitId from vcpkg.json
         id: extract_commit_id
         run: |
           vcpkg_commit_id=$(cat vcpkg.json | jq -r '.["builtin-baseline"]')
           echo "vcpkg_commit_id=$vcpkg_commit_id" >> $GITHUB_ENV
-
       - name: Restore artifacts, or setup vcpkg (do not install any package)
         uses: lukka/run-vcpkg@v10
         id: runvcpkg
         with:
           vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
           vcpkgGitCommitId: ${{ env.vcpkg_commit_id }}
-          vcpkgJsonGlob: "/vcpkg.json"
-
+          vcpkgJsonGlob: /vcpkg.json
       - name: Prints output of run-vcpkg's action
         run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
-
       - uses: lukka/run-cmake@v10
-        if: ${{ needs.semantic_release.outputs.new_release == 'true' || steps.check_release.outputs.asset_exists == 'false' }}
+        if: ${{ needs.semantic_release.outputs.new_release == 'true' || env.asset_exists == 'false' }}
         with:
           cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
           configurePreset: Release-MSVC
@@ -107,7 +100,7 @@ jobs:
     name: Upload to GitHub Release
     runs-on: windows-latest
     needs: build_cmake
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_nexus_upload == 'true' || steps.semantic.outputs.new_release_published == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_nexus_upload == 'true' || needs.semantic_release.outputs.new_release == 'true' }}
     steps:
       - name: Upload files to GitHub release
         uses: svenstaro/upload-release-action@2.3.0
@@ -122,22 +115,19 @@ jobs:
     name: Upload to Nexus
     runs-on: windows-latest
     needs: upload_github_release
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_nexus_upload == 'true' || env.new_release == 'true' && github.repository_owner == 'alandtse'
-
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_nexus_upload == 'true' || needs.semantic_release.outputs.new_release == 'true' && github.repository_owner == 'alandtse' }}
     steps:
       - name: Check if file exists in Nexus
         id: check_nexus_release
         run: |
           # Insert Nexus API check logic here
           echo "nexus_file_exists=false" >> $GITHUB_ENV
-
       - name: Setup Dotnet
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 6.x.x
       - name: Download NexusUploader
         run: dotnet tool install -g BUTR.NexusUploader
-
       - name: Get changelog from GitHub release
         id: fetch_release
         run: |
@@ -148,7 +138,6 @@ jobs:
             https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID \
             | jq -r '.body')
           echo "changelog=$CHANGELOG" >> $GITHUB_ENV
-
       - name: Upload files to Nexus
         # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
         env:
@@ -157,10 +146,10 @@ jobs:
           UNEX_GAME: skyrimspecialedition
           UNEX_MODID: 59818
           UNEX_FILENAME: ${{ env.FILENAME }}
-          UNEX_FILEDESCRIPTION: |-
+          UNEX_FILEDESCRIPTION: |
             See Description -> Requirements for installation instructions.
             PDB is for crash debugging and can be removed.
-          UNEX_PREVIOUSFILE: "auto"
+          UNEX_PREVIOUSFILE: auto
           file: build/release-msvc/${{ env.UNEX_FILENAME }}_${{ env.release_version }}.7z
           version: ${{ env.release_version }}
           changelog: ${{ env.changelog }}
