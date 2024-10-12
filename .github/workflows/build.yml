@@ -10,49 +10,36 @@
 #   described by the vcpkg.json manifest file. It will be a no-op if those are restored from cache.
 # - Finally builds the sources with Ninja.
 name: Semantic Release
-on: [push, workflow_dispatch]
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      trigger_nexus_upload:
+        description: "Trigger Nexus upload"
+        required: false
+        default: "false"
+env:
+  FILENAME: CrashLogger # Define the filename here to use globally
 
 jobs:
-  job:
-    name: ${{ matrix.os }}-${{ github.workflow }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-        include:
-          - os: windows-latest
-            vcpkgCommitId: "9558037875497b9db8cf38fcd7db68ec661bffe7"
+  semantic_release:
+    name: Semantic Release
+    runs-on: windows-latest
     if: github.repository_owner == 'alandtse'
-
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: "true"
       - uses: lukka/get-cmake@latest
-      - name: Restore artifacts, or setup vcpkg (do not install any package)
-        uses: lukka/run-vcpkg@v10
-        id: runvcpkg
-        with:
-          # This specifies the location of vcpkg, where it is going to be restored from cache, or create from scratch.
-          vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
-          # The Git commit id of vcpkg to be checked out. This is only needed because we are not using a submodule.
-          vcpkgGitCommitId: "${{ matrix.vcpkgCommitId}}"
-          # The vcpkg.json file, which will be part of cache key computation.
-          vcpkgJsonGlob: "/vcpkg.json"
-
-      - name: Prints output of run-vcpkg's action
-        run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
-
       - name: Setup node
         uses: actions/setup-node@v4
         with:
           node-version: 18
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v4
-        id: semantic # Need an `id` for output variables
+        id: semantic
         with:
-          # You can specify specifying version range for the extra plugins if you prefer.
           extra_plugins: |
             @semantic-release/changelog
             @semantic-release/git
@@ -62,46 +49,117 @@ jobs:
           semantic_version: 24.1.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run CMake with vcpkg.json manifest
-        if: steps.semantic.outputs.new_release_published == 'true'
-        uses: lukka/run-cmake@v10
+      - name: Set output release ouutput
+        run: echo "new_release=${{ steps.semantic.outputs.new_release_published }}" >> $GITHUB_ENV
+
+  build_cmake:
+    name: Build with CMake
+    runs-on: windows-latest
+    if: github.repository_owner == 'alandtse'
+    needs: semantic_release
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "true"
+
+      - name: Check if GitHub release tag exists
+        id: check_release
+        run: |
+          RELEASE_VERSION=$(git describe --tags --abbrev=0)
+          echo "release_version=${RELEASE_VERSION}" >> $GITHUB_ENV
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/${RELEASE_VERSION} \
+            | jq -r '.assets[]?.name' > assets.txt
+          if grep -q "${{ env.FILENAME }}_${RELEASE_VERSION}.7z" assets.txt; then
+            echo "asset_exists=true" >> $GITHUB_ENV
+          else
+            echo "asset_exists=false" >> $GITHUB_ENV
+
+      - name: Extract vcpkgGitCommitId from vcpkg.json
+        id: extract_commit_id
+        run: |
+          vcpkg_commit_id=$(cat vcpkg.json | jq -r '.["builtin-baseline"]')
+          echo "vcpkg_commit_id=$vcpkg_commit_id" >> $GITHUB_ENV
+
+      - name: Restore artifacts, or setup vcpkg (do not install any package)
+        uses: lukka/run-vcpkg@v10
+        id: runvcpkg
+        with:
+          vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
+          vcpkgGitCommitId: ${{ env.vcpkg_commit_id }}
+          vcpkgJsonGlob: "/vcpkg.json"
+
+      - name: Prints output of run-vcpkg's action
+        run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
+
+      - uses: lukka/run-cmake@v10
+        if: ${{ env.asset_exists == 'false' || env.new_release == 'true' }}
         with:
           cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
           configurePreset: Release-MSVC
           buildPreset: Release-MSVC
-      - name: Upload files to a GitHub release
-        if: steps.semantic.outputs.new_release_published == 'true'
+
+  upload_github_release:
+    name: Upload to GitHub Release
+    runs-on: windows-latest
+    needs: build_cmake
+    if: ${{ env.asset_exists == 'false' || env.new_release == 'true' }}
+    steps:
+      - name: Upload files to GitHub release
         uses: svenstaro/upload-release-action@2.3.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file_glob: true
-          file: build/release-msvc/CrashLogger_${{ steps.semantic.outputs.new_release_version }}.7z
-          tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+          file: build/release-msvc/${{ env.FILENAME }}_${{ env.release_version }}.7z
+          tag: ${{ env.release_version }}
           overwrite: true
+
+  upload_nexus:
+    name: Upload to Nexus
+    runs-on: windows-latest
+    needs: upload_github_release
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_nexus_upload == 'true' || env.new_release == 'true' && github.repository_owner == 'alandtse'
+
+    steps:
+      - name: Check if file exists in Nexus
+        id: check_nexus_release
+        run: |
+          # Insert Nexus API check logic here
+          echo "nexus_file_exists=false" >> $GITHUB_ENV
+
       - name: Setup Dotnet
-        if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: 6.x.x
       - name: Download NexusUploader
-        if: steps.semantic.outputs.new_release_published == 'true'
         run: dotnet tool install -g BUTR.NexusUploader
+
+      - name: Get changelog from GitHub release
+        id: fetch_release
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.release_version }} \
+            | jq -r '.id')
+          CHANGELOG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID \
+            | jq -r '.body')
+          echo "changelog=$CHANGELOG" >> $GITHUB_ENV
+
       - name: Upload files to Nexus
         # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
-        if: steps.semantic.outputs.new_release_published == 'true'
         env:
           UNEX_SESSION_COOKIE: ${{ secrets.NEXUSMODS_SESSION_COOKIE }}
           UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
           UNEX_GAME: skyrimspecialedition
           UNEX_MODID: 59818
-          UNEX_FILENAME: CrashLogger
+          UNEX_FILENAME: ${{ env.FILENAME }}
           UNEX_FILEDESCRIPTION: |-
             See Description -> Requirements for installation instructions.
             PDB is for crash debugging and can be removed.
           UNEX_PREVIOUSFILE: "auto"
-          file: build/release-msvc/CrashLogger_${{ steps.semantic.outputs.new_release_version }}.7z
-          version: ${{ steps.semantic.outputs.new_release_version }}
-          changelog: ${{ steps.semantic.outputs.new_release_notes }}
+          file: build/release-msvc/${{ env.UNEX_FILENAME }}_${{ env.release_version }}.7z
+          version: ${{ env.release_version }}
+          changelog: ${{ env.changelog }}
         run: |
           unex upload $UNEX_MODID $file -v $version
           unex changelog $version -c "$changelog"
