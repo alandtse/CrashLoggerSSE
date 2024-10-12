@@ -46,5 +46,8 @@
   "default-features": [
     "plugin"
   ],
-  "builtin-baseline": "a164ace504d8fe6f50aeec7e235d22b9089ad0d5"
+  "builtin-baseline": "9558037875497b9db8cf38fcd7db68ec661bffe7",
+  "overrides": [
+    { "name": "fmt", "version": "10.2.1" }
+  ]
 }

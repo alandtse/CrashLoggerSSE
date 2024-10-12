@@ -11,6 +11,33 @@ using namespace vr;
 
 namespace Crash
 {
+	class SEHException : public std::exception
+	{
+	public:
+		SEHException(const std::string& message, DWORD code) :
+			_message(message), _code(code) {}
+
+		const char* what() const noexcept override
+		{
+			return _message.c_str();
+		}
+
+		DWORD code() const noexcept
+		{
+			return _code;
+		}
+
+	private:
+		std::string _message;
+		DWORD _code;
+	};
+
+	// SEH to C++ exception translator function
+	void seh_translator(unsigned int code, EXCEPTION_POINTERS* info)
+	{
+		throw SEHException("SEH Exception occurred", code);
+	}
+
 	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
 	{
 		const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
@@ -105,8 +132,7 @@ namespace Crash
 			return log;
 		}
 
-		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception,
-			std::span<const module_pointer> a_modules)
+		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules)
 		{
 #define EXCEPTION_CASE(a_code) \
 	case a_code:               \
@@ -162,6 +188,40 @@ namespace Crash
 
 			a_log.critical("Unhandled exception{} at 0x{:012X}{}"sv, exception, eaddr, post);
 
+			// Log exception flags
+			a_log.critical("Exception Flags: 0x{:08X}"sv, a_exception.ExceptionFlags);
+
+			// Log number of parameters
+			a_log.critical("Number of Parameters: {}"sv, a_exception.NumberParameters);
+
+			// Log additional exception information for specific exception types
+			if (a_exception.ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+				const auto accessType = a_exception.ExceptionInformation[0] == 0 ? "read" :
+				                        a_exception.ExceptionInformation[0] == 1 ? "write" :
+				                        a_exception.ExceptionInformation[0] == 8 ? "execute" :
+				                                                                   "unknown";
+				const auto faultAddress = a_exception.ExceptionInformation[1];
+				a_log.critical("Access Violation: Tried to {} memory at 0x{:012X}"sv, accessType, faultAddress);
+			} else if (a_exception.ExceptionCode == EXCEPTION_IN_PAGE_ERROR) {
+				const auto accessType = a_exception.ExceptionInformation[0] == 0 ? "read" :
+				                        a_exception.ExceptionInformation[0] == 1 ? "write" :
+				                        a_exception.ExceptionInformation[0] == 8 ? "execute" :
+				                                                                   "unknown";
+				const auto faultAddress = a_exception.ExceptionInformation[1];
+				const auto ntStatus = a_exception.ExceptionInformation[2];
+				a_log.critical("In-Page Error: Tried to {} memory at 0x{:012X}, NTSTATUS: 0x{:08X}"sv, accessType, faultAddress, ntStatus);
+			} else if (a_exception.NumberParameters > 0) {
+				a_log.critical("Exception Information Parameters:");
+				for (std::size_t i = 0; i < a_exception.NumberParameters; ++i) {
+					a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, a_exception.ExceptionInformation[i]);
+				}
+			}
+
+			// Check for nested exceptions
+			if (a_exception.ExceptionRecord) {
+				a_log.critical("Nested Exception:");
+				print_exception(a_log, *a_exception.ExceptionRecord, a_modules);  // Recursively print nested exception
+			}
 #undef EXCEPTION_CASE
 		}
 
@@ -386,7 +446,7 @@ namespace Crash
 				gibibyte(videoMemoryInfo.Budget));
 
 			// Detect VM
-			if (VM::detect(VM::DISABLE(VM::GAMARUE))) {
+			if (VM::detect(VM::DEFAULT & ~(static_cast<std::bitset<121>>(VM::GAMARUE)))) {
 				a_log.critical("\tDetected Virtual Machine: {} ({}%)"sv, VM::brand(VM::MULTIPLE), VM::percentage());
 			}
 		}
@@ -450,6 +510,9 @@ namespace Crash
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
+			// Install the SEH-to-C++ exception translator
+			_set_se_translator(seh_translator);
+
 			try {
 				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 				if (debugConfig.waitForDebugger) {
@@ -478,8 +541,7 @@ namespace Crash
 				};
 
 				const auto runtimeVer = REL::Module::get().version();
-				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1],
-					runtimeVer[2]);
+				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
 				log->critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
 				log->flush();
 
@@ -488,11 +550,10 @@ namespace Crash
 				if (REL::Module::IsVR())
 					print([&]() { print_vrinfo(*log); }, "print_vrinfo");
 
-				print(
-					[&]() {
-						const Callstack callstack{ *a_exception->ExceptionRecord };
-						callstack.print(*log, cmodules);
-					},
+				print([&]() {
+					const Callstack callstack{ *a_exception->ExceptionRecord };
+					callstack.print(*log, cmodules);
+				},
 					"probable_callstack");
 
 				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
@@ -500,7 +561,20 @@ namespace Crash
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
-			} catch (...) {}
+
+			} catch (const SEHException& se) {
+				// Log the SEH exception converted to a C++ exception
+				const auto log = get_log();
+				log->critical("SEH Exception caught: {} (Code: 0x{:X})", se.what(), se.code());
+			} catch (const std::exception& e) {
+				// Log the C++ exception
+				const auto log = get_log();
+				log->critical("Caught C++ exception: {}", e.what());
+			} catch (...) {
+				// Catch any other unknown exception
+				const auto log = get_log();
+				log->critical("Caught an unknown exception");
+			}
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
 		}
