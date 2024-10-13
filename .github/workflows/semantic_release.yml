@@ -1,7 +1,6 @@
 name: Semantic Release
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       trigger_nexus_upload:

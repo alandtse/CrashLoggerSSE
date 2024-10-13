@@ -1,0 +1,107 @@
+# Copyright (c) 2020-2021-2022 Luca Cappa
+# Released under the term specified in file LICENSE.txt
+# SPDX short identifier: MIT
+#
+# The peculiarity of this workflow is that assumes vcpkg is NOT stored as a submodule of this repository.
+# This workflow does the following:
+# - Restores vcpkg artifacts from cache.
+# - Using the provided Git commit id, sets up vcpkg if needed, then run CMake with CMakePreset.json using a configuration
+#   that leverages the vcpkg's toolchain file. This will automatically run vcpkg to install dependencies
+#   described by the vcpkg.json manifest file. It will be a no-op if those are restored from cache.
+# - Finally builds the sources with Ninja.
+name: Semantic Release and Build
+on: [push, workflow_dispatch]
+
+jobs:
+  job:
+    name: ${{ matrix.os }}-${{ github.workflow }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        include:
+          - os: windows-latest
+            vcpkgCommitId: "9558037875497b9db8cf38fcd7db68ec661bffe7"
+    if: github.repository_owner == 'alandtse'
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "true"
+      - uses: lukka/get-cmake@latest
+      - name: Restore artifacts, or setup vcpkg (do not install any package)
+        uses: lukka/run-vcpkg@v10
+        id: runvcpkg
+        with:
+          # This specifies the location of vcpkg, where it is going to be restored from cache, or create from scratch.
+          vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
+          # The Git commit id of vcpkg to be checked out. This is only needed because we are not using a submodule.
+          vcpkgGitCommitId: "${{ matrix.vcpkgCommitId}}"
+          # The vcpkg.json file, which will be part of cache key computation.
+          vcpkgJsonGlob: "/vcpkg.json"
+
+      - name: Prints output of run-vcpkg's action
+        run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        id: semantic # Need an `id` for output variables
+        with:
+          # You can specify specifying version range for the extra plugins if you prefer.
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/github
+            @google/semantic-release-replace-plugin
+          dry_run: false
+          semantic_version: 24.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run CMake with vcpkg.json manifest
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
+          configurePreset: Release-MSVC
+          buildPreset: Release-MSVC
+      - name: Upload files to a GitHub release
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: svenstaro/upload-release-action@2.3.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file_glob: true
+          file: build/release-msvc/CrashLogger_${{ steps.semantic.outputs.new_release_version }}.7z
+          tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+          overwrite: true
+      - name: Setup Dotnet
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 6.x.x
+      - name: Download NexusUploader
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: dotnet tool install -g BUTR.NexusUploader
+      - name: Upload files to Nexus
+        # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          UNEX_SESSION_COOKIE: ${{ secrets.NEXUSMODS_SESSION_COOKIE }}
+          UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
+          UNEX_GAME: skyrimspecialedition
+          UNEX_MODID: 59818
+          UNEX_FILENAME: CrashLogger
+          UNEX_FILEDESCRIPTION: |-
+            See Description -> Requirements for installation instructions.
+            PDB is for crash debugging and can be removed.
+          UNEX_PREVIOUSFILE: "auto"
+          file: build/release-msvc/CrashLogger_${{ steps.semantic.outputs.new_release_version }}.7z
+          version: ${{ steps.semantic.outputs.new_release_version }}
+          changelog: ${{ steps.semantic.outputs.new_release_notes }}
+        run: |
+          unex upload $UNEX_MODID $file -v $version
+          unex changelog $version -c "$changelog"
