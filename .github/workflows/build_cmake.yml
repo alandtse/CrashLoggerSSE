@@ -74,6 +74,7 @@ jobs:
           vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
           vcpkgGitCommitId: ${{ env.vcpkg_commit_id }}
           vcpkgJsonGlob: /vcpkg.json
+      - uses: lukka/get-cmake@latest
       - uses: lukka/run-cmake@v10
         if: ${{ needs.semantic_release.outputs.new_release == 'true' || env.asset_exists == 'false' }}
         with:
