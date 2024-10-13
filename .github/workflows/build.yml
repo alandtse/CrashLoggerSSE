@@ -29,7 +29,7 @@ jobs:
     runs-on: windows-latest
     if: ${{ github.repository_owner == 'alandtse' }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: lukka/get-cmake@latest
@@ -60,7 +60,7 @@ jobs:
     if: ${{ github.repository_owner == 'alandtse' }}
     needs: semantic_release
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Check if GitHub release tag exists
@@ -72,7 +72,7 @@ jobs:
           if (-not $RELEASE_VERSION) {
             Write-Host "No tags found in the repository."
             echo "asset_exists=false" >> $env:GITHUB_ENV
-            exit 0
+            exit 1
           }
 
           echo "release_version=$RELEASE_VERSION" >> $env:GITHUB_ENV
