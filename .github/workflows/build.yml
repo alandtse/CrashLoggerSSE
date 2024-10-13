@@ -19,6 +19,10 @@ on:
         description: "Trigger Nexus upload"
         required: false
         default: "false"
+      skip_semantic_release: # New input to skip semantic release
+        description: "Skip the Semantic Release step"
+        required: false
+        default: "false"
 
 env:
   FILENAME: CrashLogger # Define the filename here to use globally
@@ -27,7 +31,7 @@ jobs:
   semantic_release:
     name: Semantic Release
     runs-on: windows-latest
-    if: ${{ github.repository_owner == 'alandtse' }}
+    if: ${{ github.repository_owner == 'alandtse' && github.event_name != 'workflow_dispatch' || github.event.inputs.skip_semantic_release == 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,7 +62,7 @@ jobs:
     name: Build with CMake
     runs-on: windows-latest
     if: ${{ github.repository_owner == 'alandtse' }}
-    needs: semantic_release
+    needs: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_semantic_release == 'true' && 'skip' || 'semantic_release' }}
     steps:
       - uses: actions/checkout@v4
         with:
