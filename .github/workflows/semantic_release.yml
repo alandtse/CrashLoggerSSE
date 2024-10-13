@@ -1,0 +1,45 @@
+name: Semantic Release
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      trigger_nexus_upload:
+        description: "Trigger Nexus upload"
+        required: false
+        default: "false"
+      skip_semantic_release:
+        description: "Skip the Semantic Release step"
+        required: false
+        default: "false"
+
+jobs:
+  semantic_release:
+    name: Semantic Release
+    runs-on: windows-latest
+    if: ${{ github.repository_owner == 'alandtse' && (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_semantic_release == 'false') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: lukka/get-cmake@latest
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        id: semantic
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/github
+            @google/semantic-release-replace-plugin
+          dry_run: false
+          semantic_version: 24.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set output release status
+        id: set_release_output
+        run: echo "new_release=${{ steps.semantic.outputs.new_release_published }}" >> $GITHUB_ENV
