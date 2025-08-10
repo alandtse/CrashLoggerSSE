@@ -96,6 +96,17 @@ find_package(OpenVR REQUIRED)
 set(VS_PATH ${CMAKE_GENERATOR_INSTANCE})
 get_filename_component(VS_DIA_INC_PATH "${VS_PATH}/DIA SDK/include" ABSOLUTE CACHE)
 
+# For cases where CMAKE_GENERATOR_INSTANCE is not set (like with Ninja), derive from compiler path
+if(NOT VS_PATH OR VS_PATH STREQUAL "")
+    # Extract VS path from compiler path in CMakeCache.txt
+    string(REGEX MATCH "^(.*/Microsoft Visual Studio/[^/]+/[^/]+)" VS_PATH_FROM_COMPILER "${CMAKE_CXX_COMPILER}")
+    if(VS_PATH_FROM_COMPILER)
+        set(VS_PATH ${VS_PATH_FROM_COMPILER})
+        get_filename_component(VS_DIA_INC_PATH "${VS_PATH}/DIA SDK/include" ABSOLUTE)
+        message(STATUS "Derived Visual Studio path from compiler: ${VS_PATH}")
+    endif()
+endif()
+
 # Starting in VS 15.2, vswhere is included.
 # Unclear what the right component to search for is, might be Microsoft.VisualStudio.Component.VC.DiagnosticTools
 # (although the friendly name of that is C++ profiling tools).  The toolset is the most likely target.
@@ -107,32 +118,35 @@ execute_process(
         OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-find_path(DIASDK_INCLUDE_DIR # Set variable DIASDK_INCLUDE_DIR
-        dia2.h # Find a path with dia2.h
-        HINTS "${VS_DIA_INC_PATH}"
-        HINTS "${VSWHERE_LATEST}/DIA SDK/include"
-        DOC "path to DIA SDK header files"
+find_path(DIASDK_INCLUDE_DIR
+    dia2.h
+    HINTS
+        "${VS_DIA_INC_PATH}"
+        "${VSWHERE_LATEST}/DIA SDK/include"
+    DOC "path to DIA SDK header files"
 )
 
 # VS 2017
 if(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
-        if(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64)
-        elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM")
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
-        else(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
-        endif(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+    if(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib 
+            HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 ${DIASDK_INCLUDE_DIR}/../lib)
+    elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM")
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
+    else(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
+    endif(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
 else(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
-        if((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64)
-        elseif((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM") OR("${DXC_BUILD_ARCH}" STREQUAL "ARM"))
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
-        elseif((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64.*") OR("${DXC_BUILD_ARCH}" MATCHES "ARM64.*"))
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm64)
-        else((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
-                find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
-        endif((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
+    if((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64") OR(CMAKE_SIZEOF_VOID_P EQUAL 8))
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib 
+            HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 ${DIASDK_INCLUDE_DIR}/../lib)
+    elseif((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM") OR("${DXC_BUILD_ARCH}" STREQUAL "ARM"))
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
+    elseif((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64.*") OR("${DXC_BUILD_ARCH}" MATCHES "ARM64.*"))
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm64)
+    else((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib)
+    endif((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64"))
 endif(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
 
 set(DIASDK_LIBRARIES ${DIASDK_GUIDS_LIBRARY})
@@ -280,7 +294,7 @@ foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
         if(DIASDK_LIBRARIES)
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
-        endif()
+                endif()
 endforeach()
 
 set(ZIP_DIR "${CMAKE_CURRENT_BINARY_DIR}/zip")
