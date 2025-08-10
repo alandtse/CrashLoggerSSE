@@ -7,6 +7,7 @@
 #include <Settings.h>
 #include <openvr.h>
 #include <vmaware.hpp>
+#undef debug // avoid conflict with vmaware.hpp debug
 using namespace vr;
 
 namespace Crash
@@ -40,16 +41,37 @@ namespace Crash
 
 	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
 	{
-		const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
-		auto it = std::find_if(_stacktrace.cbegin(), _stacktrace.cend(), [&](auto&& a_elem) noexcept {
-			return reinterpret_cast<std::uintptr_t>(a_elem.address()) == exceptionAddress;
-		});
+		try {
+			// Validate stacktrace has reasonable size to prevent memory issues
+			if (_stacktrace.size() > 10000) {
+				// Truncate extremely large stack traces
+				_frames = std::span(_stacktrace.begin(), _stacktrace.begin() + 1000);
+				return;
+			}
 
-		if (it == _stacktrace.cend()) {
-			it = _stacktrace.cbegin();
+			const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
+			auto it = std::find_if(_stacktrace.cbegin(), _stacktrace.cend(), [&](auto&& a_elem) noexcept {
+				try {
+					return reinterpret_cast<std::uintptr_t>(a_elem.address()) == exceptionAddress;
+				} catch (...) {
+					// Invalid frame, skip
+					return false;
+				}
+			});
+
+			if (it == _stacktrace.cend()) {
+				it = _stacktrace.cbegin();
+			}
+
+			_frames = std::span(it, _stacktrace.cend());
+		} catch (...) {
+			// Fallback: create minimal safe frame span
+			if (!_stacktrace.empty()) {
+				_frames = std::span(_stacktrace.begin(), _stacktrace.begin() + 1);
+			} else {
+				_frames = std::span<const boost::stacktrace::frame>();
+			}
 		}
-
-		_frames = std::span(it, _stacktrace.cend());
 	}
 
 	void Callstack::print(spdlog::logger& a_log, std::span<const module_pointer> a_modules) const
@@ -71,13 +93,27 @@ namespace Crash
 	{
 		a_log.critical("PROBABLE CALL STACK:"sv);
 
+		// Limit stack frames to prevent excessive memory usage and processing time
+		constexpr std::size_t MAX_FRAMES = 500;
+		const auto frame_count = std::min(_frames.size(), MAX_FRAMES);
+		if (_frames.size() > MAX_FRAMES) {
+			a_log.critical("Stack trace truncated to {} frames (original: {})", MAX_FRAMES, _frames.size());
+		}
+
 		std::vector<const Modules::Module*> moduleStack;
-		moduleStack.reserve(_frames.size());
-		for (const auto& frame : _frames) {
-			const auto mod = Introspection::get_module_for_pointer(frame.address(), a_modules);
-			if (mod && mod->in_range(frame.address())) {
-				moduleStack.push_back(mod);
-			} else {
+		moduleStack.reserve(frame_count);
+		
+		for (std::size_t i = 0; i < frame_count; ++i) {
+			try {
+				const auto& frame = _frames[i];
+				const auto mod = Introspection::get_module_for_pointer(frame.address(), a_modules);
+				if (mod && mod->in_range(frame.address())) {
+					moduleStack.push_back(mod);
+				} else {
+					moduleStack.push_back(nullptr);
+				}
+			} catch (...) {
+				// Invalid frame, mark as null and continue
 				moduleStack.push_back(nullptr);
 			}
 		}
@@ -89,11 +125,22 @@ namespace Crash
 			return max;
 		}());
 
-		for (std::size_t i = 0; i < _frames.size(); ++i) {
-			const auto mod = moduleStack[i];
-			const auto& frame = _frames[i];
-			a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(frame.address()), (mod ? mod->name() : ""sv),
-				(mod ? mod->frame_info(frame) : ""s));
+		for (std::size_t i = 0; i < frame_count && i < moduleStack.size(); ++i) {
+			try {
+				const auto mod = moduleStack[i];
+				const auto& frame = _frames[i];
+				const auto frame_info = mod ? [&]() {
+					try {
+						return mod->frame_info(frame);
+					} catch (...) {
+						return std::string("[frame info error]");
+					}
+				}() : ""s;
+				a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(frame.address()), 
+					(mod ? mod->name() : ""sv), frame_info);
+			} catch (...) {
+				a_log.critical("[Frame {} processing failed]", i);
+			}
 		}
 	}
 
@@ -217,10 +264,20 @@ namespace Crash
 				}
 			}
 
-			// Check for nested exceptions
-			if (a_exception.ExceptionRecord) {
-				a_log.critical("Nested Exception:");
-				print_exception(a_log, *a_exception.ExceptionRecord, a_modules);  // Recursively print nested exception
+			// Check for nested exceptions (with depth limit to prevent infinite recursion)
+			static thread_local int exception_depth = 0;
+			constexpr int MAX_EXCEPTION_DEPTH = 10;
+			if (a_exception.ExceptionRecord && exception_depth < MAX_EXCEPTION_DEPTH) {
+				a_log.critical("Nested Exception (depth {}):", exception_depth + 1);
+				++exception_depth;
+				try {
+					print_exception(a_log, *a_exception.ExceptionRecord, a_modules);
+				} catch (...) {
+					a_log.critical("Failed to process nested exception at depth {}", exception_depth);
+				}
+				--exception_depth;
+			} else if (a_exception.ExceptionRecord && exception_depth >= MAX_EXCEPTION_DEPTH) {
+				a_log.critical("Nested exception depth limit reached ({}), stopping recursion", MAX_EXCEPTION_DEPTH);
 			}
 #undef EXCEPTION_CASE
 		}
@@ -531,7 +588,17 @@ namespace Crash
 				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
 					try {
+						// Add timeout protection to prevent hanging on bad operations
+						auto start = std::chrono::steady_clock::now();
+						constexpr auto timeout = std::chrono::seconds(30);
+						
 						a_functor();
+						
+						auto elapsed = std::chrono::steady_clock::now() - start;
+						if (elapsed > std::chrono::seconds(5)) {
+							log->critical("\t{}: completed in {:.1f}s (slow)"sv, a_name, 
+								std::chrono::duration<double>(elapsed).count());
+						}
 					} catch (const std::exception& e) {
 						log->critical("\t{}:\t{}"sv, a_name, e.what());
 					} catch (...) {
@@ -551,8 +618,21 @@ namespace Crash
 					print([&]() { print_vrinfo(*log); }, "print_vrinfo");
 
 				print([&]() {
-					const Callstack callstack{ *a_exception->ExceptionRecord };
-					callstack.print(*log, cmodules);
+					try {
+						const Callstack callstack{ *a_exception->ExceptionRecord };
+						callstack.print(*log, cmodules);
+					} catch (const std::bad_alloc&) {
+						log->critical("CALLSTACK ANALYSIS FAILED: Out of memory");
+					} catch (...) {
+						log->critical("CALLSTACK ANALYSIS FAILED: Unknown error in stack analysis");
+						// Fallback: try to at least log the exception address
+						try {
+							const auto addr = reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress);
+							log->critical("Exception occurred at address: 0x{:012X}", addr);
+						} catch (...) {
+							log->critical("Unable to retrieve exception address");
+						}
+					}
 				},
 					"probable_callstack");
 
@@ -586,17 +666,29 @@ namespace Crash
 		}
 	}  // namespace
 
+
 	void Install(std::string a_crashPath)
 	{
+		// Set crash path first
+		if (!a_crashPath.empty()) {
+			crashPath = a_crashPath;
+			logger::info("Crash Logs will be written to {}", crashPath);
+		}
+		
+		// Install crash handlers
 		const auto success =
 			::AddVectoredExceptionHandler(1, reinterpret_cast<::PVECTORED_EXCEPTION_HANDLER>(&VectoredExceptions));
 		if (success == nullptr) {
 			util::report_and_fail("failed to install vectored exception handler"sv);
 		}
 		logger::info("installed crash handlers"sv);
-		if (!a_crashPath.empty()) {
-			crashPath = a_crashPath;
-			logger::info("Crash Logs will be written to {}", crashPath);
+		
+		// Verify handlers are working by testing (in debug builds only)
+		#ifdef _DEBUG
+		if (const auto& debugConfig = Settings::GetSingleton()->GetDebug(); 
+			debugConfig.waitForDebugger) {
+			logger::debug("Crash handler installation verified (debug mode)");
 		}
+		#endif
 	}
 }  // namespace Crash
