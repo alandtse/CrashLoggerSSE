@@ -11,6 +11,36 @@
 #include <regex>
 #include <unordered_set>
 
+// PDB error constants - these should be defined in cvconst.h but may not be available
+// If available through DIA SDK, we can use them directly
+#ifndef E_PDB_USAGE
+#	define E_PDB_USAGE HRESULT(0x806D0001L)
+#	define E_PDB_OUT_OF_MEMORY HRESULT(0x806D0002L)
+#	define E_PDB_FILE_SYSTEM HRESULT(0x806D0003L)
+#	define E_PDB_NOT_FOUND HRESULT(0x806D0004L)
+#	define E_PDB_INVALID_SIG HRESULT(0x806D0005L)
+#	define E_PDB_INVALID_AGE HRESULT(0x806D0006L)
+#	define E_PDB_PRECOMP_REQUIRED HRESULT(0x806D0007L)
+#	define E_PDB_OUT_OF_TI HRESULT(0x806D0008L)
+#	define E_PDB_NOT_IMPLEMENTED HRESULT(0x806D0009L)
+#	define E_PDB_V1_PDB HRESULT(0x806D000AL)
+#	define E_PDB_FORMAT HRESULT(0x806D000CL)
+#	define E_PDB_LIMIT HRESULT(0x806D000DL)
+#	define E_PDB_CORRUPT HRESULT(0x806D000EL)
+#	define E_PDB_TI16 HRESULT(0x806D000FL)
+#	define E_PDB_ACCESS_DENIED HRESULT(0x806D0010L)
+#	define E_PDB_ILLEGAL_TYPE_EDIT HRESULT(0x806D0011L)
+#	define E_PDB_INVALID_EXECUTABLE HRESULT(0x806D0012L)
+#	define E_PDB_DBG_NOT_FOUND HRESULT(0x806D0013L)
+#	define E_PDB_NO_DEBUG_INFO HRESULT(0x806D0014L)
+#	define E_PDB_INVALID_EXE_TIMESTAMP HRESULT(0x806D0015L)
+#	define E_PDB_RESERVED HRESULT(0x806D0016L)
+#	define E_PDB_DEBUG_INFO_NOT_IN_PDB HRESULT(0x806D0017L)
+#	define E_PDB_SYMSRV_BAD_CACHE_PATH HRESULT(0x806D0018L)
+#	define E_PDB_SYMSRV_CACHE_FULL HRESULT(0x806D0019L)
+#	define E_PDB_MAX HRESULT(0x806D001AL)
+#endif
+
 namespace Crash
 {
 	namespace PDB
@@ -276,17 +306,106 @@ namespace Crash
 		std::string print_hr_failure(HRESULT hr)
 		{
 			auto errMsg = "";
-			switch ((unsigned int)hr) {
-			case 0x806D0005:  // E_PDB_NOT_FOUND
-				errMsg = "Unable to locate PDB";
+			switch (hr) {
+			// PDB-specific error codes
+			case E_PDB_USAGE:
+				errMsg = "Invalid PDB usage";
 				break;
-			case 0x806D0012:  // E_PDB_FORMAT
-			case 0x806D0014:  // E_PDB_NO_DEBUG_INFO
-				errMsg = "Invalid or obsolete file format";
+			case E_PDB_OUT_OF_MEMORY:
+				errMsg = "Out of memory during PDB operation";
+				break;
+			case E_PDB_FILE_SYSTEM:
+				errMsg = "File system error accessing PDB";
+				break;
+			case E_PDB_NOT_FOUND:
+				errMsg = "PDB file not found";
+				break;
+			case E_PDB_INVALID_SIG:
+				errMsg = "PDB signature mismatch";
+				break;
+			case E_PDB_INVALID_AGE:
+				errMsg = "PDB age mismatch";
+				break;
+			case E_PDB_PRECOMP_REQUIRED:
+				errMsg = "Precompiled header required";
+				break;
+			case E_PDB_OUT_OF_TI:
+				errMsg = "Out of type indices";
+				break;
+			case E_PDB_NOT_IMPLEMENTED:
+				errMsg = "PDB feature not implemented";
+				break;
+			case E_PDB_V1_PDB:
+				errMsg = "Unsupported PDB v1.0 format";
+				break;
+			case E_PDB_FORMAT:
+				errMsg = "Invalid PDB format";
+				break;
+			case E_PDB_LIMIT:
+				errMsg = "PDB internal limit exceeded";
+				break;
+			case E_PDB_CORRUPT:
+				errMsg = "PDB file is corrupted";
+				break;
+			case E_PDB_TI16:
+				errMsg = "PDB 16-bit type index not supported";
+				break;
+			case E_PDB_ACCESS_DENIED:
+				errMsg = "Access denied to PDB file";
+				break;
+			case E_PDB_ILLEGAL_TYPE_EDIT:
+				errMsg = "Illegal type edit in PDB";
+				break;
+			case E_PDB_INVALID_EXECUTABLE:
+				errMsg = "Invalid executable format for PDB";
+				break;
+			case E_PDB_DBG_NOT_FOUND:
+				errMsg = "DBG file not found";
+				break;
+			case E_PDB_NO_DEBUG_INFO:
+				errMsg = "No debug information available";
+				break;
+			case E_PDB_INVALID_EXE_TIMESTAMP:
+				errMsg = "Executable timestamp mismatch";
+				break;
+			case E_PDB_RESERVED:
+				errMsg = "Reserved PDB error";
+				break;
+			case E_PDB_DEBUG_INFO_NOT_IN_PDB:
+				errMsg = "Debug info not in PDB format";
+				break;
+			case E_PDB_SYMSRV_BAD_CACHE_PATH:
+				errMsg = "Bad symbol server cache path";
+				break;
+			case E_PDB_SYMSRV_CACHE_FULL:
+				errMsg = "Symbol server cache full";
+				break;
+			case E_PDB_MAX:
+				errMsg = "Maximum PDB error reached";
+				break;
+			// Common HRESULT codes
+			case E_INVALIDARG:
+				errMsg = "Invalid argument passed to PDB function";
+				break;
+			case E_OUTOFMEMORY:
+				errMsg = "Out of memory";
+				break;
+			case E_FAIL:
+				errMsg = "Unspecified PDB failure";
+				break;
+			case E_NOTIMPL:
+				errMsg = "PDB function not implemented";
+				break;
+			case E_NOINTERFACE:
+				errMsg = "PDB interface not supported";
+				break;
+			case E_ACCESSDENIED:
+				errMsg = "Access denied to PDB resources";
 				break;
 			default:
 				_com_error err(hr);
 				errMsg = CT2A(err.ErrorMessage());
+				break;
 			}
 			return errMsg;
 		}
