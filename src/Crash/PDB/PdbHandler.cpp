@@ -374,12 +374,17 @@ namespace Crash
 			CComPtr<IDiaDataSource> pSource;
 			HRESULT hr = S_OK;
 
-			// Initialize COM
-			if (FAILED(hr = CoInitializeEx(NULL, COINIT_MULTITHREADED))) {
+			// Initialize COM - handle the case where it's already initialized
+			hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+			if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+				// Only fail if it's not already initialized with a different mode
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to initialize COM library for dll {}+{:07X}\t{}", a_name, a_offset, error);
 				return result;
 			}
+			
+			// Track if we need to uninitialize COM later
+			bool com_initialized_here = SUCCEEDED(hr);
 
 			// Attempt to load msdia140.dll
 			auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
@@ -392,7 +397,7 @@ namespace Crash
 				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
 					auto error = print_hr_failure(hr);
 					logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
-					CoUninitialize();
+					if (com_initialized_here) CoUninitialize();
 					return result;
 				}
 			}
@@ -445,7 +450,7 @@ namespace Crash
 			}
 
 			if (!foundPDB) {
-				CoUninitialize();
+				if (com_initialized_here) CoUninitialize();
 				return result;
 			}
 
@@ -461,28 +466,28 @@ namespace Crash
 			if (FAILED(hr = pSource->openSession(&pSession))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to open IDiaSession for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				CoUninitialize();
+				if (com_initialized_here) CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getGlobalScope for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				CoUninitialize();
+				if (com_initialized_here) CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->getEnumTables(&enumTables))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getEnumTables for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				CoUninitialize();
+				if (com_initialized_here) CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->getSymbolsByAddr(&enumSymbolsByAddr))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getSymbolsByAddr for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				CoUninitialize();
+				if (com_initialized_here) CoUninitialize();
 				return result;
 			}
 
@@ -517,7 +522,7 @@ namespace Crash
 				logger::info("No public symbol found for {}+{:07X}", a_name, a_offset);
 			}
 
-			CoUninitialize();
+			if (com_initialized_here) CoUninitialize();
 			return result;
 		}
 
@@ -525,7 +530,15 @@ namespace Crash
 		// this was the early POC test and written first in this module
 		void dump_symbols(bool exe)
 		{
-			CoInitialize(nullptr);
+			// Initialize COM - handle the case where it's already initialized
+			HRESULT com_hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+			bool com_initialized_here = SUCCEEDED(com_hr);
+			
+			// RPC_E_CHANGED_MODE means COM is already initialized with different threading mode
+			if (FAILED(com_hr) && com_hr != RPC_E_CHANGED_MODE) {
+				logger::error("Failed to initialize COM for symbol dumping: {}", print_hr_failure(com_hr));
+				return;
+			}
 			int retflag;
 			if (exe) {
 				const auto string_path = "./SkyrimVR.exe";
