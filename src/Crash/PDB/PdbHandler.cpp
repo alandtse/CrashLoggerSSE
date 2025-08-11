@@ -114,120 +114,67 @@ namespace Crash
 			return std::wstring(start, end + 1);
 		}
 
+		[[nodiscard]] static std::string demangle_simple(const std::wstring& mangled)
+		{
+			// Early return for non-mangled names (Microsoft mangled names start with '?')
+			if (mangled.empty() || mangled[0] != L'?') {
+				return utf16_to_utf8(mangled);
+			}
+
+			static std::mutex demangle_mutex;
+			std::lock_guard lock{ demangle_mutex };
+
+			// Use a larger buffer for complex names
+			std::array<wchar_t, 0x2000> buffer{ L'\0' };
+
+			const auto length = UnDecorateSymbolNameW(
+				mangled.c_str(),
+				buffer.data(),
+				static_cast<DWORD>(buffer.size()),
+				UNDNAME_COMPLETE |                    // Full demangling
+					UNDNAME_NO_LEADING_UNDERSCORES |  // Remove leading underscores
+					UNDNAME_NO_MS_KEYWORDS |          // Remove MS-specific keywords
+					//UNDNAME_NO_FUNCTION_RETURNS |     // Don't show function return types
+					UNDNAME_NO_ALLOCATION_MODEL |     // Remove allocation model
+					UNDNAME_NO_ALLOCATION_LANGUAGE |  // Remove allocation language
+					UNDNAME_NO_THISTYPE |             // Don't show 'this' type
+					UNDNAME_NO_ACCESS_SPECIFIERS |    // Remove public/private/protected
+					UNDNAME_NO_THROW_SIGNATURES |     // Remove throw specifications
+					UNDNAME_NO_RETURN_UDT_MODEL |     // Remove return UDT model
+					static_cast<DWORD>(0x8000));      // Disable enum/class/struct/union prefix
+
+			// Check if demangling succeeded
+			if (length == 0 || buffer[0] == L'\0') {
+				return utf16_to_utf8(mangled);  // Failed, return original
+			}
+
+			// Ensure proper null termination
+			if (length < buffer.size()) {
+				buffer[length] = L'\0';
+			}
+
+			std::wstring demangled{ buffer.data() };
+
+			// Trim whitespace
+			demangled.erase(0, demangled.find_first_not_of(L" \t\r\n"));
+			demangled.erase(demangled.find_last_not_of(L" \t\r\n") + 1);
+
+			// Check for failed demangling indicators
+			if (demangled.empty() ||
+				demangled == L"<unknown>" ||
+				demangled == L"UNKNOWN" ||
+				demangled.starts_with(L"??")) {
+				return utf16_to_utf8(mangled);
+			}
+
+			// For crash analysis, show both demangled and original
+			return utf16_to_utf8(demangled) + " [" + utf16_to_utf8(mangled) + "]";
+		}
+
 		[[nodiscard]] static std::string demangle(const std::wstring& mangled)
 		{
-			// Set of ignored demangled types
-			static const std::unordered_set<std::wstring> ignoredTypes = {
-				L"float",
-				L"char",
-				L"signed char",
-				L"unsigned char",
-				L"void",
-				L"short",
-				L"unsigned short",
-				L"double",
-				L"unsigned char volatile",
-			};
-
-			const auto demangle_single = [](const wchar_t* a_in, wchar_t* a_out, std::uint32_t a_size) {
-				static std::mutex m;
-				std::lock_guard l{ m };
-				return UnDecorateSymbolNameW(
-					a_in,
-					a_out,
-					a_size,
-					(UNDNAME_NO_MS_KEYWORDS) |
-						(UNDNAME_NO_FUNCTION_RETURNS) |
-						(UNDNAME_NO_ALLOCATION_MODEL) |
-						(UNDNAME_NO_ALLOCATION_LANGUAGE) |
-						(UNDNAME_NO_THISTYPE) |
-						(UNDNAME_NO_ACCESS_SPECIFIERS) |
-						(UNDNAME_NO_THROW_SIGNATURES) |
-						(UNDNAME_NO_RETURN_UDT_MODEL) |
-						(UNDNAME_NAME_ONLY) |
-						(UNDNAME_NO_ARGUMENTS) |
-						static_cast<std::uint32_t>(0x8000));
-			};
-
-			// Buffer to store demangled result
-			std::array<wchar_t, 0x1000> buf{ L'\0' };
-			std::wistringstream wiss(mangled);
-			std::wostringstream woss;
-
-			std::wstring word;
-			bool hasDemangled = false;
-
-			while (wiss >> word) {
-				// Log the word before demangling
-				logger::info("Demangling word: {}", utf16_to_utf8(word));
-
-				// Attempt to demangle each word
-				const auto len = demangle_single(word.c_str(), buf.data(), static_cast<std::uint32_t>(buf.size()));
-
-				// Ensure null-termination
-				buf[len] = L'\0';
-
-				std::wstring demangledWord{ buf.data() };
-
-				// Trim the demangled word
-				demangledWord = trim(demangledWord);
-
-				// Log the demangled word
-				logger::info("Demangled result: {}", utf16_to_utf8(demangledWord));
-
-				// Check if the demangled result is different and not in the ignored set
-				if (len != 0 && demangledWord != L"<unknown>" && demangledWord != L"UNKNOWN") {
-					if (ignoredTypes.find(demangledWord) != ignoredTypes.end() || demangledWord.starts_with(L"?? ::")) {
-						woss << word << L" ";  // Keep the original mangled word
-					} else {
-						woss << demangledWord << L" ";
-						hasDemangled = true;
-					}
-				} else {
-					woss << word << L" ";  // If demangling failed, keep the original mangled word
-				}
-			}
-
-			// Prepare the final result
-			std::wstring result = woss.str();
-			std::wstring trimmedResult = trim(result);
-
-			// Extract the potential replacement word from the mangled string if we have a valid demangled result
-			std::wstring replacementWord;
-			if (hasDemangled && mangled.starts_with(L'?')) {
-				size_t start = 1;  // Skip the initial '?'
-				size_t atPos = mangled.find(L'@', start);
-				if (atPos != std::wstring::npos) {
-					replacementWord = mangled.substr(start, atPos - start);
-					logger::info("Found potential replacement word: {}", utf16_to_utf8(replacementWord));
-				}
-			}
-
-			// Check for potential truncation only if the demangled result is used
-			if (hasDemangled && trimmedResult != mangled) {
-				std::wregex endsWithPattern(L"::[\\w]+$");
-				std::wsmatch match;
-
-				if (std::regex_search(trimmedResult, match, endsWithPattern)) {
-					// Extract the word after '::'
-					std::wstring truncatedPart = match.str(0).substr(2);  // Remove '::'
-					logger::info("Found potential truncatedPart: {}", utf16_to_utf8(truncatedPart));
-
-					// Compare the truncated part with the replacement word
-					if (!replacementWord.empty() && !truncatedPart.empty() && replacementWord.ends_with(truncatedPart)) {
-						// Replace the truncated part with the replacement word
-						trimmedResult.replace(match.position(0), match.length(0), L"::" + replacementWord);
-					}
-				}
-			}
-
-			// If the demangled string is different from the original, return both
-			if (hasDemangled && trimmedResult != mangled) {
-				return fmt::format("{} (mangled: {})", utf16_to_utf8(trimmedResult), utf16_to_utf8(mangled));
-			}
-
-			// Otherwise, return the original mangled string
-			return utf16_to_utf8(mangled);
+			// Use the simplified, correct demangling implementation
+			return demangle_simple(mangled);
 		}
 
 		std::string processSymbol(IDiaSymbol* a_symbol, IDiaSession* a_session, const DWORD& a_rva, std::string_view& a_name, uintptr_t& a_offset, std::string& a_result)
