@@ -235,11 +235,17 @@ namespace Crash
 
 			a_log.critical("Unhandled exception{} at 0x{:012X}{}"sv, exception, eaddr, post);
 
-			// Log exception flags
-			a_log.critical("Exception Flags: 0x{:08X}"sv, a_exception.ExceptionFlags);
+			// Log exception flags with description
+			a_log.critical("Exception Flags: 0x{:08X}{}"sv, a_exception.ExceptionFlags,
+				(a_exception.ExceptionFlags & EXCEPTION_NONCONTINUABLE) ? " (Non-continuable)" : 
+				(a_exception.ExceptionFlags == 0) ? " (Continuable)" : "");
 
 			// Log number of parameters
 			a_log.critical("Number of Parameters: {}"sv, a_exception.NumberParameters);
+			
+			// Add thread context info
+			const auto tid = GetCurrentThreadId();
+			a_log.critical("Exception Thread ID: {}"sv, tid);
 
 			// Log additional exception information for specific exception types
 			if (a_exception.ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
@@ -457,6 +463,14 @@ namespace Crash
 			a_log.critical("\tOS: {} v{}.{}.{}"sv, os.full_name, os.major, os.minor, os.patch);
 
 			a_log.critical("\tCPU: {} {}"sv, iware::cpu::vendor(), iware::cpu::model_name());
+			
+			// Add CPU core information
+			try {
+				const auto cores = iware::cpu::quantities();
+				a_log.critical("\tCPU Cores: {} logical, {} physical, {} packages"sv, cores.logical, cores.physical, cores.packages);
+			} catch (...) {
+				a_log.critical("\tCPU Cores: Unable to determine"sv);
+			}
 
 			const auto vendor = [](iware::gpu::vendor_t a_vendor) {
 				using vendor_t = iware::gpu::vendor_t;
@@ -491,6 +505,22 @@ namespace Crash
 			const auto mem = iware::system::memory();
 			a_log.critical("\tPHYSICAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
 				gibibyte(mem.physical_total - mem.physical_available), gibibyte(mem.physical_total));
+			a_log.critical("\tVIRTUAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
+				gibibyte(mem.virtual_total - mem.virtual_available), gibibyte(mem.virtual_total));
+			
+			// Process memory usage
+			try {
+				PROCESS_MEMORY_COUNTERS_EX pmc;
+				if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc))) {
+					a_log.critical("\tPROCESS MEMORY: Working Set: {:.02f} MB, Private: {:.02f} MB, Peak: {:.02f} MB"sv,
+						static_cast<double>(pmc.WorkingSetSize) / (1024 * 1024),
+						static_cast<double>(pmc.PrivateUsage) / (1024 * 1024),
+						static_cast<double>(pmc.PeakWorkingSetSize) / (1024 * 1024));
+					a_log.critical("\tPAGE FAULTS: {} (Peak: {})"sv, pmc.PageFaultCount, pmc.PeakWorkingSetSize);
+				}
+			} catch (...) {
+				a_log.critical("\tPROCESS MEMORY: Unable to determine"sv);
+			}
 
 			//https://forums.unrealengine.com/t/how-to-get-vram-usage-via-c/218627/2
 			IDXGIFactory4* pFactory{};
@@ -505,6 +535,79 @@ namespace Crash
 			// Detect VM
 			if (VM::detect(VM::DISABLE(VM::GAMARUE))) {
 				a_log.critical("\tDetected Virtual Machine: {} ({}%)"sv, VM::brand(VM::MULTIPLE), VM::percentage());
+			}
+		}
+
+		void print_process_info(spdlog::logger& a_log)
+		{
+			a_log.critical("PROCESS INFO:"sv);
+			
+			// Process ID and thread info
+			const auto pid = GetCurrentProcessId();
+			const auto tid = GetCurrentThreadId();
+			a_log.critical("\tProcess ID: {}"sv, pid);
+			a_log.critical("\tCrash Thread ID: {}"sv, tid);
+			
+			// Process uptime
+			try {
+				FILETIME creation_time, exit_time, kernel_time, user_time;
+				if (GetProcessTimes(GetCurrentProcess(), &creation_time, &exit_time, &kernel_time, &user_time)) {
+					FILETIME current_time;
+					GetSystemTimeAsFileTime(&current_time);
+					
+					ULARGE_INTEGER creation, current;
+					creation.LowPart = creation_time.dwLowDateTime;
+					creation.HighPart = creation_time.dwHighDateTime;
+					current.LowPart = current_time.dwLowDateTime;
+					current.HighPart = current_time.dwHighDateTime;
+					
+					const auto uptime_ms = (current.QuadPart - creation.QuadPart) / 10000; // Convert to milliseconds
+					const auto uptime_sec = uptime_ms / 1000;
+					const auto hours = uptime_sec / 3600;
+					const auto minutes = (uptime_sec % 3600) / 60;
+					const auto seconds = uptime_sec % 60;
+					
+					a_log.critical("\tProcess Uptime: {:02}:{:02}:{:02} ({}ms)"sv, hours, minutes, seconds, uptime_ms);
+				}
+			} catch (...) {
+				a_log.critical("\tProcess Uptime: Unable to determine"sv);
+			}
+			
+			// Working directory
+			try {
+				wchar_t current_dir[MAX_PATH];
+				if (GetCurrentDirectoryW(MAX_PATH, current_dir)) {
+					const std::wstring wdir(current_dir);
+					const std::string dir(wdir.begin(), wdir.end());
+					a_log.critical("\tWorking Directory: {}"sv, dir);
+				}
+			} catch (...) {
+				a_log.critical("\tWorking Directory: Unable to determine"sv);
+			}
+			
+			// Command line
+			try {
+				const auto cmd_line = GetCommandLineA();
+				if (cmd_line) {
+					a_log.critical("\tCommand Line: {}"sv, cmd_line);
+				}
+			} catch (...) {
+				a_log.critical("\tCommand Line: Unable to determine"sv);
+			}
+			
+			// Process privilege level
+			try {
+				HANDLE token;
+				if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+					TOKEN_ELEVATION elevation;
+					DWORD size;
+					if (GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size)) {
+						a_log.critical("\tElevated: {}"sv, elevation.TokenIsElevated ? "Yes" : "No");
+					}
+					CloseHandle(token);
+				}
+			} catch (...) {
+				a_log.critical("\tElevated: Unable to determine"sv);
 			}
 		}
 
@@ -607,12 +710,22 @@ namespace Crash
 					log->flush();
 				};
 
+				// Add timestamp
+				const auto now = std::time(nullptr);
+				std::tm local_time{};
+				if (localtime_s(&local_time, &now) == 0) {
+					log->critical("CRASH TIME: {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv, 
+						local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
+						local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
+				}
+				
 				const auto runtimeVer = REL::Module::get().version();
 				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
 				log->critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
+				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 				if (REL::Module::IsVR())
 					print([&]() { print_vrinfo(*log); }, "print_vrinfo");
