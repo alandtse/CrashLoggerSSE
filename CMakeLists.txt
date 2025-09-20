@@ -234,6 +234,7 @@ target_link_libraries(${PROJECT_NAME}
         PRIVATE
         Boost::stacktrace_windbg
         Dbghelp.lib
+        advapi32.lib
         frozen::frozen
         infoware
         magic_enum::magic_enum

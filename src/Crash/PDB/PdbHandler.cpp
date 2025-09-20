@@ -455,7 +455,7 @@ namespace Crash
 				logger::info("Failed to initialize COM library for dll {}+{:07X}\t{}", a_name, a_offset, error);
 				return result;
 			}
-			
+
 			// Track if we need to uninitialize COM later
 			bool com_initialized_here = SUCCEEDED(hr);
 
@@ -470,7 +470,8 @@ namespace Crash
 				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
 					auto error = print_hr_failure(hr);
 					logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
-					if (com_initialized_here) CoUninitialize();
+					if (com_initialized_here)
+						CoUninitialize();
 					return result;
 				}
 			}
@@ -523,7 +524,8 @@ namespace Crash
 			}
 
 			if (!foundPDB) {
-				if (com_initialized_here) CoUninitialize();
+				if (com_initialized_here)
+					CoUninitialize();
 				return result;
 			}
 
@@ -539,28 +541,32 @@ namespace Crash
 			if (FAILED(hr = pSource->openSession(&pSession))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to open IDiaSession for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here) CoUninitialize();
+				if (com_initialized_here)
+					CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getGlobalScope for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here) CoUninitialize();
+				if (com_initialized_here)
+					CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->getEnumTables(&enumTables))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getEnumTables for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here) CoUninitialize();
+				if (com_initialized_here)
+					CoUninitialize();
 				return result;
 			}
 
 			if (FAILED(hr = pSession->getSymbolsByAddr(&enumSymbolsByAddr))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getSymbolsByAddr for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here) CoUninitialize();
+				if (com_initialized_here)
+					CoUninitialize();
 				return result;
 			}
 
@@ -595,7 +601,8 @@ namespace Crash
 				logger::info("No public symbol found for {}+{:07X}", a_name, a_offset);
 			}
 
-			if (com_initialized_here) CoUninitialize();
+			if (com_initialized_here)
+				CoUninitialize();
 			return result;
 		}
 
@@ -606,7 +613,7 @@ namespace Crash
 			// Initialize COM - handle the case where it's already initialized
 			HRESULT com_hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 			bool com_initialized_here = SUCCEEDED(com_hr);
-			
+
 			// RPC_E_CHANGED_MODE means COM is already initialized with different threading mode
 			if (FAILED(com_hr) && com_hr != RPC_E_CHANGED_MODE) {
 				logger::error("Failed to initialize COM for symbol dumping: {}", print_hr_failure(com_hr));

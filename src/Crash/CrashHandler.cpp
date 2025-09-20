@@ -7,6 +7,9 @@
 #include <Settings.h>
 #include <openvr.h>
 #include <vmaware.hpp>
+#include <wincrypt.h>
+#include <iomanip>
+#include <sstream>
 #include <magic_enum.hpp>
 #undef debug // avoid conflict with vmaware.hpp debug
 using namespace vr;
@@ -178,6 +181,90 @@ namespace Crash
 			log->flush_on(spdlog::level::off);
 
 			return log;
+		}
+
+		[[nodiscard]] std::string get_file_md5(const std::filesystem::path& filepath)
+		{
+			const auto get_error_message = [](DWORD error) -> std::string {
+				if (error == 0) return "No error";
+				
+				LPSTR messageBuffer = nullptr;
+				const auto size = FormatMessageA(
+					FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+					nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+					reinterpret_cast<LPSTR>(&messageBuffer), 0, nullptr);
+				
+				if (size == 0) {
+					return fmt::format("Error {:#x}", error);
+				}
+				
+				std::string message(messageBuffer, size);
+				LocalFree(messageBuffer);
+				
+				// Remove trailing newlines
+				while (!message.empty() && (message.back() == '\n' || message.back() == '\r')) {
+					message.pop_back();
+				}
+				
+				return fmt::format("Error {:#x}: {}", error, message);
+			};
+
+			try {
+				std::ifstream file(filepath, std::ios::binary);
+				if (!file) {
+					const auto error = GetLastError();
+					return fmt::format("<file not accessible - {}>", get_error_message(error));
+				}
+
+				HCRYPTPROV hProv = 0;
+				HCRYPTHASH hHash = 0;
+				
+				if (!CryptAcquireContext(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+					const auto error = GetLastError();
+					return fmt::format("<CryptAcquireContext failed - {}>", get_error_message(error));
+				}
+
+				if (!CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash)) {
+					const auto error = GetLastError();
+					CryptReleaseContext(hProv, 0);
+					return fmt::format("<CryptCreateHash failed - {}>", get_error_message(error));
+				}
+
+				constexpr size_t BUFSIZE = 8192;
+				char buffer[BUFSIZE];
+				while (file.read(buffer, BUFSIZE) || file.gcount() > 0) {
+					if (!CryptHashData(hHash, reinterpret_cast<BYTE*>(buffer), 
+						static_cast<DWORD>(file.gcount()), 0)) {
+						const auto error = GetLastError();
+						CryptDestroyHash(hHash);
+						CryptReleaseContext(hProv, 0);
+						return fmt::format("<CryptHashData failed - {}>", get_error_message(error));
+					}
+				}
+
+				DWORD dwHashLen = 16; // MD5 is always 16 bytes
+				BYTE hash[16];
+				if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &dwHashLen, 0)) {
+					const auto error = GetLastError();
+					CryptDestroyHash(hHash);
+					CryptReleaseContext(hProv, 0);
+					return fmt::format("<CryptGetHashParam failed - {}>", get_error_message(error));
+				}
+
+				CryptDestroyHash(hHash);
+				CryptReleaseContext(hProv, 0);
+
+				std::stringstream ss;
+				ss << std::hex << std::setfill('0');
+				for (int i = 0; i < 16; ++i) {
+					ss << std::setw(2) << static_cast<unsigned>(hash[i]);
+				}
+				return ss.str();
+			} catch (const std::exception& e) {
+				return fmt::format("<exception: {}>", e.what());
+			} catch (...) {
+				return "<unknown exception>";
+			}
 		}
 
 		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules)
@@ -525,14 +612,14 @@ namespace Crash
 
 			//https://forums.unrealengine.com/t/how-to-get-vram-usage-via-c/218627/2
 			try {
-			IDXGIFactory4* pFactory{};
+				IDXGIFactory4* pFactory{};
 				HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
 				if (FAILED(hr)) {
 					a_log.critical("\tGPU MEMORY: Failed to create DXGI factory (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
 					return;
 				}
 				
-			IDXGIAdapter3* adapter{};
+				IDXGIAdapter3* adapter{};
 				hr = pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
 				if (FAILED(hr)) {
 					a_log.critical("\tGPU MEMORY: Failed to enumerate adapter (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
@@ -540,13 +627,13 @@ namespace Crash
 					return;
 				}
 				
-			DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
+				DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
 				hr = adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
 				if (FAILED(hr)) {
 					a_log.critical("\tGPU MEMORY: Failed to query video memory (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
 				} else {
-			a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
-				gibibyte(videoMemoryInfo.Budget));
+					a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
+						gibibyte(videoMemoryInfo.Budget));
 				}
 				
 				adapter->Release();
@@ -610,14 +697,43 @@ namespace Crash
 				a_log.critical("\tWorking Directory: Unable to determine"sv);
 			}
 			
-			// Command line
+			// Command line and executable information
 			try {
 				const auto cmd_line = GetCommandLineA();
 				if (cmd_line) {
 					a_log.critical("\tCommand Line: {}"sv, cmd_line);
 				}
+				
+				// Extract executable path and provide file details
+				wchar_t exePath[MAX_PATH];
+				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+					const std::filesystem::path exe_path(exePath);
+					const auto hash = get_file_md5(exe_path);
+					a_log.critical("\tExecutable MD5: {}"sv, hash);
+					
+					// Also get file size and timestamp
+					std::error_code ec;
+					const auto file_size = std::filesystem::file_size(exe_path, ec);
+					if (!ec) {
+						a_log.critical("\tExecutable Size: {} bytes"sv, file_size);
+					}
+					
+					const auto file_time = std::filesystem::last_write_time(exe_path, ec);
+					if (!ec) {
+						// Convert to time_t for logging
+						const auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+							file_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+						const auto time_t_val = std::chrono::system_clock::to_time_t(sctp);
+						std::tm tm_val{};
+						if (localtime_s(&tm_val, &time_t_val) == 0) {
+							a_log.critical("\tExecutable Modified: {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv,
+								tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday,
+								tm_val.tm_hour, tm_val.tm_min, tm_val.tm_sec);
+						}
+					}
+				}
 			} catch (...) {
-				a_log.critical("\tCommand Line: Unable to determine"sv);
+				a_log.critical("\tCommand Line/Executable Info: <error retrieving>"sv);
 			}
 			
 			// Process privilege level
