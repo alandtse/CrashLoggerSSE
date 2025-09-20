@@ -7,6 +7,7 @@
 #include <Settings.h>
 #include <openvr.h>
 #include <vmaware.hpp>
+#include <magic_enum.hpp>
 #undef debug // avoid conflict with vmaware.hpp debug
 using namespace vr;
 
@@ -523,14 +524,38 @@ namespace Crash
 			}
 
 			//https://forums.unrealengine.com/t/how-to-get-vram-usage-via-c/218627/2
+			try {
 			IDXGIFactory4* pFactory{};
-			CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
+				HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
+				if (FAILED(hr)) {
+					a_log.critical("\tGPU MEMORY: Failed to create DXGI factory (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
+					return;
+				}
+				
 			IDXGIAdapter3* adapter{};
-			pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
+				hr = pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
+				if (FAILED(hr)) {
+					a_log.critical("\tGPU MEMORY: Failed to enumerate adapter (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
+					pFactory->Release();
+					return;
+				}
+				
 			DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
-			adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
+				hr = adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
+				if (FAILED(hr)) {
+					a_log.critical("\tGPU MEMORY: Failed to query video memory (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
+				} else {
 			a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
 				gibibyte(videoMemoryInfo.Budget));
+				}
+				
+				adapter->Release();
+				pFactory->Release();
+			} catch (const std::exception& e) {
+				a_log.critical("\tGPU MEMORY: Exception occurred: {}"sv, e.what());
+			} catch (...) {
+				a_log.critical("\tGPU MEMORY: Unknown exception occurred"sv);
+			}
 
 			// Detect VM
 			if (VM::detect(VM::DISABLE(VM::GAMARUE))) {
@@ -625,42 +650,100 @@ namespace Crash
 					auto HMD = (IVRSystem*)_VR_GetGenericInterface(IVRSystem_Version, &eError);
 
 					if (eError != VRInitError_None) {
-						a_log.critical("\tUnable to initialize VR"sv);
+						const auto error_name = magic_enum::enum_name(eError);
+						if (!error_name.empty()) {
+							a_log.critical("\tUnable to initialize VR runtime: {} ({})"sv, error_name, static_cast<int>(eError));
+						} else {
+							a_log.critical("\tUnable to initialize VR runtime (Error: {})"sv, static_cast<int>(eError));
+						}
 						return;
 					}
-					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListString{
-						{ "Model", Prop_ModelNumber_String },
-						{ "Manufacturer", Prop_ManufacturerName_String },
-						{ "Tracking System", Prop_TrackingSystemName_String },
-						{ "Hardware Revision", Prop_HardwareRevision_String },
-						{ "Driver Version", Prop_DriverVersion_String },
-						{ "Render Model", Prop_RenderModelName_String },
-						{ "Additional Data", Prop_AdditionalSystemReportData_String },
-						{ "Expected Controller Type", Prop_ExpectedControllerType_String },
-						{ "Controller Type", Prop_ControllerType_String }
+
+					// Helper lambda for safe string property retrieval
+					const auto get_string_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
+						try {
+							char propValue[k_unMaxPropertyStringSize] = {};
+							ETrackedPropertyError error = TrackedProp_Success;
+							HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, propValue, std::size(propValue), &error);
+							
+							if (error == TrackedProp_Success && propValue[0] != '\0') {
+								a_log.critical("\t{}: {}"sv, name, propValue);
+							} else {
+								const auto error_name = magic_enum::enum_name(error);
+								if (!error_name.empty() && error != TrackedProp_Success) {
+									a_log.critical("\t{}: <error: {}>"sv, name, error_name);
+								} else {
+									a_log.critical("\t{}: <unavailable>"sv, name);
+								}
+							}
+						} catch (...) {
+							a_log.critical("\t{}: <exception>"sv, name);
+						}
 					};
-					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListFloat{
-						//{ "Battery %", Prop_DeviceBatteryPercentage_Float },
-						//{ "Power Usage", Prop_DevicePowerUsage_Float }, // maybe be future value
-						{ "Display Frequency", Prop_DisplayFrequency_Float }
+
+					// Helper lambda for safe float property retrieval
+					const auto get_float_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
+						try {
+							ETrackedPropertyError error = TrackedProp_Success;
+							float value = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
+							
+							if (error == TrackedProp_Success) {
+								a_log.critical("\t{}: {:.2f}"sv, name, value);
+							} else {
+								const auto error_name = magic_enum::enum_name(error);
+								if (!error_name.empty()) {
+									a_log.critical("\t{}: <error: {}>"sv, name, error_name);
+								} else {
+									a_log.critical("\t{}: <unavailable>"sv, name);
+								}
+							}
+						} catch (...) {
+							a_log.critical("\t{}: <exception>"sv, name);
+						}
 					};
-					const std::vector<std::pair<std::string, ETrackedDeviceProperty>> propListBool{
-						{ "Wireless", Prop_DeviceIsWireless_Bool },
-						{ "Charging", Prop_DeviceIsCharging_Bool },
-						{ "Update Available", Prop_Firmware_UpdateAvailable_Bool },
+
+					// Helper lambda for safe bool property retrieval
+					const auto get_bool_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
+						try {
+							ETrackedPropertyError error = TrackedProp_Success;
+							bool value = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
+							
+							if (error == TrackedProp_Success) {
+								a_log.critical("\t{}: {}"sv, name, value ? "Yes" : "No");
+							} else {
+								const auto error_name = magic_enum::enum_name(error);
+								if (!error_name.empty()) {
+									a_log.critical("\t{}: <error: {}>"sv, name, error_name);
+								} else {
+									a_log.critical("\t{}: <unavailable>"sv, name);
+								}
+							}
+						} catch (...) {
+							a_log.critical("\t{}: <exception>"sv, name);
+						}
 					};
-					char propValue[k_unMaxPropertyStringSize];
-					for (const auto& entry : propListString) {
-						HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second, propValue, std::size(propValue));
-						a_log.critical("\t{}: {}"sv, entry.first, propValue);
-					}
-					for (const auto& entry : propListFloat) {
-						const auto propValue = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
-						a_log.critical("\t{}: {}"sv, entry.first, propValue);
-					}
-					for (const auto& entry : propListBool) {
-						const auto propValue = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, entry.second);
-						a_log.critical("\t{}: {}"sv, entry.first, propValue);
+
+					// Essential crash-relevant VR information
+					get_string_prop(Prop_ModelNumber_String, "Model");
+					get_string_prop(Prop_ManufacturerName_String, "Manufacturer");
+					get_string_prop(Prop_DriverVersion_String, "Driver Version");
+					get_string_prop(Prop_TrackingSystemName_String, "Tracking System");
+					
+					// Performance-critical display properties
+					get_float_prop(Prop_DisplayFrequency_Float, "Display Frequency (Hz)");
+					get_float_prop(Prop_UserIpdMeters_Float, "IPD (meters)");
+					
+					// Get render target resolution (critical for performance analysis)
+					try {
+						uint32_t renderWidth = 0, renderHeight = 0;
+						HMD->GetRecommendedRenderTargetSize(&renderWidth, &renderHeight);
+						if (renderWidth > 0 && renderHeight > 0) {
+							a_log.critical("\tRender Target Size: {}x{}"sv, renderWidth, renderHeight);
+						} else {
+							a_log.critical("\tRender Target Size: <unavailable>"sv);
+						}
+					} catch (...) {
+						a_log.critical("\tRender Target Size: <error>"sv);
 					}
 				}
 			}
