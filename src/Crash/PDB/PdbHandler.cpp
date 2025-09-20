@@ -171,13 +171,92 @@ namespace Crash
 			return utf16_to_utf8(demangled) + " [" + utf16_to_utf8(mangled) + "]";
 		}
 
+		// Overload for std::string (narrow string) - now handles RTTI and MSVC symbols
+		[[nodiscard]] std::string demangle(const std::string& mangled)
+		{
+			if (mangled.empty())
+				return mangled;
+			if (mangled[0] == '.') {
+				// RTTI type descriptor: skip the leading dot
+				static std::mutex m;
+				std::lock_guard lock{ m };
+				std::array<char, 0x1000> buf{ '\0' };
+				// Use UNDNAME_NAME_ONLY to get just the type name
+				const auto len = UnDecorateSymbolName(
+					mangled.data() + 1,  // skip leading '.'
+					buf.data(),
+					static_cast<std::uint32_t>(buf.size()),
+					UNDNAME_NAME_ONLY | UNDNAME_NO_ARGUMENTS | static_cast<std::uint32_t>(0x8000));
+				if (len != 0) {
+					std::string name{ buf.data(), len };
+					// Clean up whitespace
+					name.erase(0, name.find_first_not_of(" \t\r\n"));
+					name.erase(name.find_last_not_of(" \t\r\n") + 1);
+					return name;
+				} else {
+					// Fallback: strip .?AV...@@ to class name
+					auto start = mangled.find('A');
+					auto end = mangled.rfind("@@");
+					if (start != std::string::npos && end != std::string::npos && end > start + 1) {
+						return mangled.substr(start + 1, end - start - 1);
+					}
+					return mangled;
+				}
+			} else if (mangled[0] == '?') {
+				// MSVC symbol name
+				static std::mutex demangle_mutex;
+				std::lock_guard lock{ demangle_mutex };
+				std::array<char, 0x2000> buffer{ '\0' };
+				const auto length = UnDecorateSymbolName(
+					mangled.c_str(),
+					buffer.data(),
+					static_cast<DWORD>(buffer.size()),
+					UNDNAME_COMPLETE |
+						UNDNAME_NO_LEADING_UNDERSCORES |
+						UNDNAME_NO_MS_KEYWORDS |
+						UNDNAME_NO_ALLOCATION_MODEL |
+						UNDNAME_NO_ALLOCATION_LANGUAGE |
+						UNDNAME_NO_THISTYPE |
+						UNDNAME_NO_ACCESS_SPECIFIERS |
+						UNDNAME_NO_THROW_SIGNATURES |
+						UNDNAME_NO_RETURN_UDT_MODEL |
+						static_cast<DWORD>(0x8000));
+				if (length == 0 || buffer[0] == '\0') {
+					return mangled;  // Failed, return original
+				}
+				if (length < buffer.size()) {
+					buffer[length] = '\0';
+				}
+				std::string demangled{ buffer.data() };
+				demangled.erase(0, demangled.find_first_not_of(" \t\r\n"));
+				demangled.erase(demangled.find_last_not_of(" \t\r\n") + 1);
+				if (demangled.empty() ||
+					demangled == "<unknown>" ||
+					demangled == "UNKNOWN" ||
+					demangled.starts_with("??")) {
+					return mangled;
+				}
+				return demangled + " [" + mangled + "]";
+			} else {
+				return mangled;
+			}
+		}
+
+		// Helper for BSTR to std::wstring
+		[[nodiscard]] std::wstring bstr_to_wstring(BSTR bstr)
+		{
+			if (!bstr)
+				return std::wstring();
+			return std::wstring(bstr, SysStringLen(bstr));
+		}
+
 		std::string processSymbol(IDiaSymbol* a_symbol, IDiaSession* a_session, const DWORD& a_rva, std::string_view& a_name, uintptr_t& a_offset, std::string& a_result)
 		{
 			BSTR name;
 			a_symbol->get_name(&name);
 
 			// Demangle the symbol name
-			std::string demangledName = demangle(name);
+			std::string demangledName = demangle(bstr_to_wstring(name));
 
 			DWORD rva;
 			if (a_rva == 0)

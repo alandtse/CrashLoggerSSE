@@ -3,8 +3,8 @@
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
-#include <DbgHelp.h>
 #include <magic_enum.hpp>
+#include <DbgHelp.h>
 
 namespace Crash::Introspection::SSE
 {
@@ -322,7 +322,7 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto parentCell = ref->GetParentCell();
-				if (parentCell) {
+				if (parentCell)				{
 					a_results.emplace_back(
 						fmt::format(
 							"{:\t>{}}ParentCell"sv,
@@ -1497,6 +1497,8 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
+				// Use unified demangler for consistent output. It understands
+				// RTTI descriptors (leading '.') and full MSVC symbols (leading '?').
 				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
 				return fmt::format("({}*)"sv, demangled);
 			}
@@ -1537,16 +1539,17 @@ namespace Crash::Introspection
 						const auto root = util::adjust_pointer<void>(_ptr, -static_cast<std::ptrdiff_t>(_col->offset));
 						const auto target = util::adjust_pointer<void>(root, static_cast<std::ptrdiff_t>(base->pmd.mDisp));
 						it->second(xInfo, target, 0);
-					} else {
-						// Demangle the type name for better readability using the improved PDB demangler
-						const char* mangled_name = base->typeDescriptor->mangled_name();
-						if (mangled_name && mangled_name[0] != '\0') {
-							std::string demangled_info = Crash::PDB::demangle(std::string(mangled_name));
-							logger::info("Found unhandled type:\t{}\t{} [{}]"sv, result, mangled_name, demangled_info);
-						} else {
-							logger::info("Found unhandled type:\t{}\t<null>"sv, result);
-						}
-					}
+					   } else {
+						   // Demangle the type name for better readability using the improved PDB demangler
+						   const char* mangled_name = base->typeDescriptor->mangled_name();
+						   if (mangled_name && mangled_name[0] != '\0') {
+							   std::wstring wide_mangled = std::wstring(mangled_name, mangled_name + strlen(mangled_name));
+							   std::string demangled_info = Crash::PDB::demangle(wide_mangled);
+							   logger::info("Found unhandled type:\t{}\t{} [{}]"sv, result, mangled_name, demangled_info);
+						   } else {
+							   logger::info("Found unhandled type:\t{}\t<null>"sv, result);
+						   }
+					   }
 				}
 
 				if (!xInfo.empty()) {
