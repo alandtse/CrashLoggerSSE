@@ -114,7 +114,7 @@ namespace Crash
 			return std::wstring(start, end + 1);
 		}
 
-		[[nodiscard]] static std::string demangle_simple(const std::wstring& mangled)
+		[[nodiscard]] std::string demangle(const std::wstring& mangled)
 		{
 			// Early return for non-mangled names (Microsoft mangled names start with '?')
 			if (mangled.empty() || mangled[0] != L'?') {
@@ -169,12 +169,6 @@ namespace Crash
 
 			// For crash analysis, show both demangled and original
 			return utf16_to_utf8(demangled) + " [" + utf16_to_utf8(mangled) + "]";
-		}
-
-		[[nodiscard]] static std::string demangle(const std::wstring& mangled)
-		{
-			// Use the simplified, correct demangling implementation
-			return demangle_simple(mangled);
 		}
 
 		std::string processSymbol(IDiaSymbol* a_symbol, IDiaSession* a_session, const DWORD& a_rva, std::string_view& a_name, uintptr_t& a_offset, std::string& a_result)

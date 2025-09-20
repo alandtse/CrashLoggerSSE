@@ -3,8 +3,8 @@
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
-#include <magic_enum.hpp>
 #include <DbgHelp.h>
+#include <magic_enum.hpp>
 
 namespace Crash::Introspection::SSE
 {
@@ -322,7 +322,7 @@ namespace Crash::Introspection::SSE
 
 			try {
 				const auto parentCell = ref->GetParentCell();
-				if (parentCell)				{
+				if (parentCell) {
 					a_results.emplace_back(
 						fmt::format(
 							"{:\t>{}}ParentCell"sv,
@@ -1568,8 +1568,16 @@ namespace Crash::Introspection
 						const auto root = util::adjust_pointer<void>(_ptr, -static_cast<std::ptrdiff_t>(_col->offset));
 						const auto target = util::adjust_pointer<void>(root, static_cast<std::ptrdiff_t>(base->pmd.mDisp));
 						it->second(xInfo, target, 0);
-					} else
-						logger::info("Found unhandled type:\t{}\t{}"sv, result, base->typeDescriptor->mangled_name());
+					} else {
+						// Demangle the type name for better readability using the improved PDB demangler
+						const char* mangled_name = base->typeDescriptor->mangled_name();
+						if (mangled_name && mangled_name[0] != '\0') {
+							std::string demangled_info = Crash::PDB::demangle(mangled_name);
+							logger::info("Found unhandled type:\t{}\t{} [{}]"sv, result, mangled_name, demangled_info);
+						} else {
+							logger::info("Found unhandled type:\t{}\t<null>"sv, result);
+						}
+					}
 				}
 
 				if (!xInfo.empty()) {
