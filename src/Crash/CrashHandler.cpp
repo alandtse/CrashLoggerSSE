@@ -394,41 +394,106 @@ namespace Crash
 				return result;
 			}();
 
-			using value_type = std::pair<std::string, std::optional<REL::Version>>;
-			std::vector<value_type> plugins;
+			// Helper: attempt to read FileVersion string from version resource
+			auto get_file_version_string = [&](const std::filesystem::path& filename) -> std::optional<std::string> {
+				DWORD handle = 0;
+				const auto pathW = filename.wstring();
+				const auto size = GetFileVersionInfoSizeW(pathW.c_str(), &handle);
+				if (size == 0) return std::nullopt;
+
+				std::vector<std::byte> data(size);
+				if (!GetFileVersionInfoW(pathW.c_str(), handle, size, data.data())) return std::nullopt;
+
+				// Try StringFileInfo translation entry first
+				struct LANGANDCODEPAGE { WORD wLanguage; WORD wCodePage; };
+				LANGANDCODEPAGE* trans = nullptr;
+				UINT transLen = 0;
+				if (VerQueryValueW(data.data(), L"\\VarFileInfo\\Translation", reinterpret_cast<LPVOID*>(&trans), &transLen) && transLen >= sizeof(LANGANDCODEPAGE)) {
+					wchar_t block[64];
+					swprintf(block, std::size(block), L"\\StringFileInfo\\%04x%04x\\FileVersion", trans[0].wLanguage, trans[0].wCodePage);
+					LPWSTR value = nullptr;
+					UINT valueLen = 0;
+					if (VerQueryValueW(data.data(), block, reinterpret_cast<LPVOID*>(&value), &valueLen) && valueLen > 0) {
+						std::wstring ws(value, valueLen);
+						// trim trailing whitespace/newlines
+						while (!ws.empty() && iswspace(ws.back())) ws.pop_back();
+						return std::string(ws.begin(), ws.end());
+					}
+				}
+
+				// Fallback: use fixed file info
+				VS_FIXEDFILEINFO* ffi = nullptr;
+				UINT ffiLen = 0;
+				if (VerQueryValueW(data.data(), L"\\", reinterpret_cast<LPVOID*>(&ffi), &ffiLen) && ffi) {
+					const auto major = HIWORD(ffi->dwFileVersionMS);
+					const auto minor = LOWORD(ffi->dwFileVersionMS);
+					const auto build = HIWORD(ffi->dwFileVersionLS);
+					const auto rev = LOWORD(ffi->dwFileVersionLS);
+					return fmt::format("{}.{}.{}.{}", major, minor, build, rev);
+				}
+
+				return std::nullopt;
+			};
+
+			struct PluginInfo {
+				std::string name;
+				std::optional<REL::Version> version;
+				std::optional<std::string> version_str; // fallback raw/string version
+			};
+
+			std::vector<PluginInfo> plugins;
 			for (const auto& m : modules) {
 				try {
 					std::filesystem::path pluginDir{ Crash::PDB::sPluginPath };
-					std::filesystem::path filename = pluginDir.append(m);
-					if (std::filesystem::exists(filename))
-						plugins.emplace_back(*std::move(std::make_optional(m)), REL::GetFileVersion(filename.wstring()));
+					std::filesystem::path filename = pluginDir;
+					filename.append(m);
+					if (std::filesystem::exists(filename)) {
+						try {
+							plugins.push_back({ std::string(m), REL::GetFileVersion(filename.wstring()), std::nullopt });
+						} catch (const std::exception&) {
+							// Fallback: try to read whatever version string we can from the file resources
+							auto vs = get_file_version_string(filename);
+							if (vs) {
+								plugins.push_back({ std::string(m), std::nullopt, *vs });
+							} else {
+								plugins.push_back({ std::string(m), std::nullopt, std::nullopt });
+							}
+						}
+					}
 				} catch (const std::exception& e) {
 					a_log.critical("Skipping module {}:{}"sv, m, e.what());
+				} catch (...) {
+					a_log.critical("Skipping module {}:<unknown error>"sv, m);
 				}
 			}
 			std::sort(plugins.begin(), plugins.end(),
-				[=](const value_type& a_lhs, const value_type& a_rhs) { return ci(a_lhs.first, a_rhs.first); });
-			for (const auto& [plugin, version] : plugins) {
-				const auto ver = [&]() {
-					if (version) {
-						std::span view{ version->begin(), version->end() };
-						const auto it = std::find_if(view.rbegin(), view.rend(),
-							[](std::uint16_t a_val) noexcept { return a_val != 0; });
-						if (it != view.rend()) {
-							std::string result = " v";
-							std::string_view pre;
-							for (std::size_t i = 0; i < static_cast<std::size_t>(view.rend() - it); ++i) {
-								result += pre;
-								result += fmt::to_string(view[i]);
-								pre = "."sv;
+				[=](const PluginInfo& a_lhs, const PluginInfo& a_rhs) { return ci(a_lhs.name, a_rhs.name); });
+			for (const auto& p : plugins) {
+				if (p.version) {
+					const auto ver = [&]() {
+						if (p.version) {
+							std::span view{ p.version->begin(), p.version->end() };
+							const auto it = std::find_if(view.rbegin(), view.rend(),
+								[](std::uint16_t a_val) noexcept { return a_val != 0; });
+							if (it != view.rend()) {
+								std::string result = " v";
+								std::string_view pre;
+								for (std::size_t i = 0; i < static_cast<std::size_t>(view.rend() - it); ++i) {
+									result += pre;
+									result += fmt::to_string(view[i]);
+									pre = "."sv;
+								}
+								return result;
 							}
-							return result;
 						}
-					}
-					return ""s;
-				}();
-
-				a_log.critical("\t{}{}"sv, plugin, ver);
+						return ""s;
+					}();
+					a_log.critical("\t{}{}"sv, p.name, ver);
+				} else if (p.version_str) {
+					a_log.critical("\t{} v{}"sv, p.name, *p.version_str);
+				} else {
+					a_log.critical("\t{}"sv, p.name);
+				}
 			}
 		}
 
