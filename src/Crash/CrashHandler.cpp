@@ -417,7 +417,7 @@ namespace Crash
 						std::wstring ws(value, valueLen);
 						// trim trailing whitespace/newlines
 						while (!ws.empty() && iswspace(ws.back())) ws.pop_back();
-						return std::string(ws.begin(), ws.end());
+						return util::utf16_to_utf8(ws).value_or(std::string());
 					}
 				}
 
@@ -755,7 +755,7 @@ namespace Crash
 				wchar_t current_dir[MAX_PATH];
 				if (GetCurrentDirectoryW(MAX_PATH, current_dir)) {
 					const std::wstring wdir(current_dir);
-					const std::string dir(wdir.begin(), wdir.end());
+					const std::string dir = util::utf16_to_utf8(wdir).value_or(std::string());
 					a_log.critical("\tWorking Directory: {}"sv, dir);
 				}
 			} catch (...) {
