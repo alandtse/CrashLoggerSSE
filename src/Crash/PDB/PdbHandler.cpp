@@ -305,10 +305,15 @@ namespace Crash
 
 					if (!found_source && !found_line) {
 						auto sRva = fmt::format("{:X}", rva);
-						if (demangledName.ends_with(sRva))
-							sRva = "";
-						else
-							sRva = "_" + sRva;
+						bool is_annotated = demangledName.find('[') != std::string::npos;
+						if (!is_annotated) {
+							if (demangledName.ends_with(sRva))
+								sRva = "";
+							else
+								sRva = "_" + sRva;
+						} else {
+							sRva.clear();
+						}
 
 						a_result += fmt::format(" {}{}", demangledName, sRva);
 					}
