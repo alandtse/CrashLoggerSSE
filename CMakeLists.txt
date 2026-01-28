@@ -69,7 +69,11 @@ include(GNUInstallDirs)
 # #######################################################################################################################
 # # Find dependencies
 # #######################################################################################################################
-find_package(CommonLibSSE CONFIG REQUIRED)
+set(CommonLibPath "extern/CommonLibSSE-NG")
+set(CommonLibName "CommonLibSSE")
+set(BUILD_TESTS OFF)
+add_subdirectory(${CommonLibPath} ${CommonLibName} EXCLUDE_FROM_ALL)
+include("${CommonLibPath}/cmake/CommonLibSSE.cmake")
 find_package(Boost
         MODULE
         REQUIRED
@@ -265,7 +269,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
 
-if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo OR ${CMAKE_BUILD_TYPE} STREQUAL Release)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
 endif()
@@ -287,7 +291,7 @@ foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
 
-        if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo OR ${CMAKE_BUILD_TYPE} STREQUAL Release)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
         endif()
@@ -321,7 +325,7 @@ if(DIASDK_LIBRARIES)
                 COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${ZIP_DIR}/SKSE/Plugins/")
 endif()
 
-if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo OR ${CMAKE_BUILD_TYPE} STREQUAL Release)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${ZIP_DIR}/SKSE/Plugins/")
 endif()
