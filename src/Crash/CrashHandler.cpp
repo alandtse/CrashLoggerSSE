@@ -43,9 +43,36 @@ namespace Crash
 		throw SEHException("SEH Exception occurred", code);
 	}
 
-	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
+	// Safe wrapper to capture stack trace with exception protection
+	// Returns a pair: (stacktrace, success_flag)
+	std::pair<boost::stacktrace::stacktrace, bool> safe_capture_stacktrace() noexcept
 	{
 		try {
+			// Capture with limited depth to avoid excessive memory usage
+			// If this crashes during stack unwinding, the catch will handle it
+			auto st = boost::stacktrace::stacktrace(0, 500);
+			return { std::move(st), true };
+		} catch (const std::bad_alloc&) {
+			// Out of memory during stack capture - stack may be corrupted
+			return { boost::stacktrace::stacktrace(0, 0), false };
+		} catch (...) {
+			// Exception during stacktrace capture - stack is likely corrupted
+			return { boost::stacktrace::stacktrace(0, 0), false };
+		}
+	}
+
+	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
+	{
+		auto [stacktrace, success] = safe_capture_stacktrace();
+		_stacktrace = std::move(stacktrace);
+
+		try {
+			// Handle empty stacktrace (indicates capture failure due to stack corruption)
+			if (_stacktrace.empty()) {
+				_frames = std::span<const boost::stacktrace::frame>();
+				return;
+			}
+
 			// Validate stacktrace has reasonable size to prevent memory issues
 			if (_stacktrace.size() > 10000) {
 				// Truncate extremely large stack traces
@@ -96,6 +123,14 @@ namespace Crash
 	void Callstack::print_probable_callstack(spdlog::logger& a_log, std::span<const module_pointer> a_modules) const
 	{
 		a_log.critical("PROBABLE CALL STACK:"sv);
+
+		// Handle empty stacktrace case (indicates capture failure due to stack corruption)
+		if (_frames.empty()) {
+			a_log.critical("WARNING: Stack trace capture failed - the call stack was likely corrupted.");
+			a_log.critical("         The crash information below may be incomplete or unavailable.");
+			a_log.critical("         Unable to retrieve any stack frames due to stack corruption.");
+			return;
+		}
 
 		// Limit stack frames to prevent excessive memory usage and processing time
 		constexpr std::size_t MAX_FRAMES = 500;
