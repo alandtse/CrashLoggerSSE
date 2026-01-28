@@ -11,7 +11,6 @@
       "description": "Build the SKSE plugin.",
       "dependencies": [
         "boost-stacktrace",
-        "commonlibsse-ng",
         "clib-util",
         "directxtk",
         "frozen",
@@ -23,7 +22,9 @@
         },
         "magic-enum",
         "openvr",
+        "rapidcsv",
         "rsm-binary-io",
+        "spdlog",
         "vmaware",
         "zycore",
         "zydis"
@@ -48,6 +49,7 @@
   ],
   "builtin-baseline": "9558037875497b9db8cf38fcd7db68ec661bffe7",
   "overrides": [
-    { "name": "fmt", "version": "10.2.1" }
+    { "name": "fmt", "version": "10.2.1" },
+    { "name": "spdlog", "version": "1.15.0" }
   ]
 }
