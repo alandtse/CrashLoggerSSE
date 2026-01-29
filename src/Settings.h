@@ -11,6 +11,7 @@ public:
 		spdlog::level::level_enum logLevel{ spdlog::level::level_enum::info };
 		spdlog::level::level_enum flushLevel{ spdlog::level::level_enum::trace };
 		bool waitForDebugger{ false };
+		bool autoOpenCrashLog{ true };
 		std::string symcache{ "" };
 		std::string crashDirectory{ "" };
 	};
