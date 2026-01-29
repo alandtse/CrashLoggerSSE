@@ -5,13 +5,14 @@
 #include "Crash/PDB/PdbHandler.h"
 #include "dxgi1_4.h"
 #include <Settings.h>
+#include <iomanip>
+#include <magic_enum.hpp>
 #include <openvr.h>
+#include <shellapi.h>
+#include <sstream>
 #include <vmaware.hpp>
 #include <wincrypt.h>
-#include <iomanip>
-#include <sstream>
-#include <magic_enum.hpp>
-#undef debug // avoid conflict with vmaware.hpp debug
+#undef debug  // avoid conflict with vmaware.hpp debug
 using namespace vr;
 
 namespace Crash
@@ -141,7 +142,7 @@ namespace Crash
 
 		std::vector<const Modules::Module*> moduleStack;
 		moduleStack.reserve(frame_count);
-		
+
 		for (std::size_t i = 0; i < frame_count; ++i) {
 			try {
 				const auto& frame = _frames[i];
@@ -174,8 +175,9 @@ namespace Crash
 					} catch (...) {
 						return std::string("[frame info error]");
 					}
-				}() : ""s;
-				a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(frame.address()), 
+				}() :
+				                              ""s;
+				a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(frame.address()),
 					(mod ? mod->name() : ""sv), frame_info);
 			} catch (...) {
 				a_log.critical("[Frame {} processing failed]", i);
@@ -196,7 +198,7 @@ namespace Crash
 
 	namespace
 	{
-		[[nodiscard]] std::shared_ptr<spdlog::logger> get_log()
+		[[nodiscard]] std::pair<std::shared_ptr<spdlog::logger>, std::filesystem::path> get_log()
 		{
 			std::optional<std::filesystem::path> path = crashPath;
 			const auto time = std::time(nullptr);
@@ -215,32 +217,33 @@ namespace Crash
 			log->set_level(spdlog::level::trace);
 			log->flush_on(spdlog::level::off);
 
-			return log;
+			return { log, *path };
 		}
 
 		[[nodiscard]] std::string get_file_md5(const std::filesystem::path& filepath)
 		{
 			const auto get_error_message = [](DWORD error) -> std::string {
-				if (error == 0) return "No error";
-				
+				if (error == 0)
+					return "No error";
+
 				LPSTR messageBuffer = nullptr;
 				const auto size = FormatMessageA(
 					FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 					nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 					reinterpret_cast<LPSTR>(&messageBuffer), 0, nullptr);
-				
+
 				if (size == 0) {
 					return fmt::format("Error {:#x}", error);
 				}
-				
+
 				std::string message(messageBuffer, size);
 				LocalFree(messageBuffer);
-				
+
 				// Remove trailing newlines
 				while (!message.empty() && (message.back() == '\n' || message.back() == '\r')) {
 					message.pop_back();
 				}
-				
+
 				return fmt::format("Error {:#x}: {}", error, message);
 			};
 
@@ -253,7 +256,7 @@ namespace Crash
 
 				HCRYPTPROV hProv = 0;
 				HCRYPTHASH hHash = 0;
-				
+
 				if (!CryptAcquireContext(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
 					const auto error = GetLastError();
 					return fmt::format("<CryptAcquireContext failed - {}>", get_error_message(error));
@@ -268,8 +271,8 @@ namespace Crash
 				constexpr size_t BUFSIZE = 8192;
 				char buffer[BUFSIZE];
 				while (file.read(buffer, BUFSIZE) || file.gcount() > 0) {
-					if (!CryptHashData(hHash, reinterpret_cast<BYTE*>(buffer), 
-						static_cast<DWORD>(file.gcount()), 0)) {
+					if (!CryptHashData(hHash, reinterpret_cast<BYTE*>(buffer),
+							static_cast<DWORD>(file.gcount()), 0)) {
 						const auto error = GetLastError();
 						CryptDestroyHash(hHash);
 						CryptReleaseContext(hProv, 0);
@@ -277,7 +280,7 @@ namespace Crash
 					}
 				}
 
-				DWORD dwHashLen = 16; // MD5 is always 16 bytes
+				DWORD dwHashLen = 16;  // MD5 is always 16 bytes
 				BYTE hash[16];
 				if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &dwHashLen, 0)) {
 					const auto error = GetLastError();
@@ -360,12 +363,13 @@ namespace Crash
 
 			// Log exception flags with description
 			a_log.critical("Exception Flags: 0x{:08X}{}"sv, a_exception.ExceptionFlags,
-				(a_exception.ExceptionFlags & EXCEPTION_NONCONTINUABLE) ? " (Non-continuable)" : 
-				(a_exception.ExceptionFlags == 0) ? " (Continuable)" : "");
+				(a_exception.ExceptionFlags & EXCEPTION_NONCONTINUABLE) ? " (Non-continuable)" :
+				(a_exception.ExceptionFlags == 0)                       ? " (Continuable)" :
+																		  "");
 
 			// Log number of parameters
 			a_log.critical("Number of Parameters: {}"sv, a_exception.NumberParameters);
-			
+
 			// Add thread context info
 			const auto tid = GetCurrentThreadId();
 			a_log.critical("Exception Thread ID: {}"sv, tid);
@@ -434,13 +438,19 @@ namespace Crash
 				DWORD handle = 0;
 				const auto pathW = filename.wstring();
 				const auto size = GetFileVersionInfoSizeW(pathW.c_str(), &handle);
-				if (size == 0) return std::nullopt;
+				if (size == 0)
+					return std::nullopt;
 
 				std::vector<std::byte> data(size);
-				if (!GetFileVersionInfoW(pathW.c_str(), handle, size, data.data())) return std::nullopt;
+				if (!GetFileVersionInfoW(pathW.c_str(), handle, size, data.data()))
+					return std::nullopt;
 
 				// Try StringFileInfo translation entry first
-				struct LANGANDCODEPAGE { WORD wLanguage; WORD wCodePage; };
+				struct LANGANDCODEPAGE
+				{
+					WORD wLanguage;
+					WORD wCodePage;
+				};
 				LANGANDCODEPAGE* trans = nullptr;
 				UINT transLen = 0;
 				if (VerQueryValueW(data.data(), L"\\VarFileInfo\\Translation", reinterpret_cast<LPVOID*>(&trans), &transLen) && transLen >= sizeof(LANGANDCODEPAGE)) {
@@ -470,10 +480,11 @@ namespace Crash
 				return std::nullopt;
 			};
 
-			struct PluginInfo {
+			struct PluginInfo
+			{
 				std::string name;
 				std::optional<REL::Version> version;
-				std::optional<std::string> version_str; // fallback raw/string version
+				std::optional<std::string> version_str;  // fallback raw/string version
 			};
 
 			std::vector<PluginInfo> plugins;
@@ -651,7 +662,7 @@ namespace Crash
 			a_log.critical("\tOS: {} v{}.{}.{}"sv, os.full_name, os.major, os.minor, os.patch);
 
 			a_log.critical("\tCPU: {} {}"sv, iware::cpu::vendor(), iware::cpu::model_name());
-			
+
 			// Add CPU core information
 			try {
 				const auto cores = iware::cpu::quantities();
@@ -695,7 +706,7 @@ namespace Crash
 				gibibyte(mem.physical_total - mem.physical_available), gibibyte(mem.physical_total));
 			a_log.critical("\tVIRTUAL MEMORY: {:.02f} GB/{:.02f} GB"sv,
 				gibibyte(mem.virtual_total - mem.virtual_available), gibibyte(mem.virtual_total));
-			
+
 			// Process memory usage
 			try {
 				PROCESS_MEMORY_COUNTERS_EX pmc;
@@ -718,7 +729,7 @@ namespace Crash
 					a_log.critical("\tGPU MEMORY: Failed to create DXGI factory (HRESULT: {:#x})"sv, static_cast<uint32_t>(hr));
 					return;
 				}
-				
+
 				IDXGIAdapter3* adapter{};
 				hr = pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
 				if (FAILED(hr)) {
@@ -726,7 +737,7 @@ namespace Crash
 					pFactory->Release();
 					return;
 				}
-				
+
 				DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
 				hr = adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
 				if (FAILED(hr)) {
@@ -735,7 +746,7 @@ namespace Crash
 					a_log.critical("\tGPU MEMORY: {:.02f}/{:.02f} GB"sv, gibibyte(videoMemoryInfo.CurrentUsage),
 						gibibyte(videoMemoryInfo.Budget));
 				}
-				
+
 				adapter->Release();
 				pFactory->Release();
 			} catch (const std::exception& e) {
@@ -753,38 +764,38 @@ namespace Crash
 		void print_process_info(spdlog::logger& a_log)
 		{
 			a_log.critical("PROCESS INFO:"sv);
-			
+
 			// Process ID and thread info
 			const auto pid = GetCurrentProcessId();
 			const auto tid = GetCurrentThreadId();
 			a_log.critical("\tProcess ID: {}"sv, pid);
 			a_log.critical("\tCrash Thread ID: {}"sv, tid);
-			
+
 			// Process uptime
 			try {
 				FILETIME creation_time, exit_time, kernel_time, user_time;
 				if (GetProcessTimes(GetCurrentProcess(), &creation_time, &exit_time, &kernel_time, &user_time)) {
 					FILETIME current_time;
 					GetSystemTimeAsFileTime(&current_time);
-					
+
 					ULARGE_INTEGER creation, current;
 					creation.LowPart = creation_time.dwLowDateTime;
 					creation.HighPart = creation_time.dwHighDateTime;
 					current.LowPart = current_time.dwLowDateTime;
 					current.HighPart = current_time.dwHighDateTime;
-					
-					const auto uptime_ms = (current.QuadPart - creation.QuadPart) / 10000; // Convert to milliseconds
+
+					const auto uptime_ms = (current.QuadPart - creation.QuadPart) / 10000;  // Convert to milliseconds
 					const auto uptime_sec = uptime_ms / 1000;
 					const auto hours = uptime_sec / 3600;
 					const auto minutes = (uptime_sec % 3600) / 60;
 					const auto seconds = uptime_sec % 60;
-					
+
 					a_log.critical("\tProcess Uptime: {:02}:{:02}:{:02} ({}ms)"sv, hours, minutes, seconds, uptime_ms);
 				}
 			} catch (...) {
 				a_log.critical("\tProcess Uptime: Unable to determine"sv);
 			}
-			
+
 			// Working directory
 			try {
 				wchar_t current_dir[MAX_PATH];
@@ -796,28 +807,28 @@ namespace Crash
 			} catch (...) {
 				a_log.critical("\tWorking Directory: Unable to determine"sv);
 			}
-			
+
 			// Command line and executable information
 			try {
 				const auto cmd_line = GetCommandLineA();
 				if (cmd_line) {
 					a_log.critical("\tCommand Line: {}"sv, cmd_line);
 				}
-				
+
 				// Extract executable path and provide file details
 				wchar_t exePath[MAX_PATH];
 				if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
 					const std::filesystem::path exe_path(exePath);
 					const auto hash = get_file_md5(exe_path);
 					a_log.critical("\tExecutable MD5: {}"sv, hash);
-					
+
 					// Also get file size and timestamp
 					std::error_code ec;
 					const auto file_size = std::filesystem::file_size(exe_path, ec);
 					if (!ec) {
 						a_log.critical("\tExecutable Size: {} bytes"sv, file_size);
 					}
-					
+
 					const auto file_time = std::filesystem::last_write_time(exe_path, ec);
 					if (!ec) {
 						// Convert to time_t for logging
@@ -835,7 +846,7 @@ namespace Crash
 			} catch (...) {
 				a_log.critical("\tCommand Line/Executable Info: <error retrieving>"sv);
 			}
-			
+
 			// Process privilege level
 			try {
 				HANDLE token;
@@ -881,7 +892,7 @@ namespace Crash
 							char propValue[k_unMaxPropertyStringSize] = {};
 							ETrackedPropertyError error = TrackedProp_Success;
 							HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, propValue, std::size(propValue), &error);
-							
+
 							if (error == TrackedProp_Success && propValue[0] != '\0') {
 								a_log.critical("\t{}: {}"sv, name, propValue);
 							} else {
@@ -902,7 +913,7 @@ namespace Crash
 						try {
 							ETrackedPropertyError error = TrackedProp_Success;
 							float value = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
-							
+
 							if (error == TrackedProp_Success) {
 								a_log.critical("\t{}: {:.2f}"sv, name, value);
 							} else {
@@ -923,7 +934,7 @@ namespace Crash
 						try {
 							ETrackedPropertyError error = TrackedProp_Success;
 							bool value = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
-							
+
 							if (error == TrackedProp_Success) {
 								a_log.critical("\t{}: {}"sv, name, value ? "Yes" : "No");
 							} else {
@@ -944,11 +955,11 @@ namespace Crash
 					get_string_prop(Prop_ManufacturerName_String, "Manufacturer");
 					get_string_prop(Prop_DriverVersion_String, "Driver Version");
 					get_string_prop(Prop_TrackingSystemName_String, "Tracking System");
-					
+
 					// Performance-critical display properties
 					get_float_prop(Prop_DisplayFrequency_Float, "Display Frequency (Hz)");
 					get_float_prop(Prop_UserIpdMeters_Float, "IPD (meters)");
-					
+
 					// Get render target resolution (critical for performance analysis)
 					try {
 						uint32_t renderWidth = 0, renderHeight = 0;
@@ -972,6 +983,8 @@ namespace Crash
 			// Install the SEH-to-C++ exception translator
 			_set_se_translator(seh_translator);
 
+			std::filesystem::path crashLogPath;
+
 			try {
 				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 				if (debugConfig.waitForDebugger) {
@@ -985,7 +998,8 @@ namespace Crash
 
 				const auto modules = Modules::get_loaded_modules();
 				const std::span cmodules{ modules.begin(), modules.end() };
-				const auto log = get_log();
+				auto [log, logPath] = get_log();
+				crashLogPath = logPath;
 
 				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
@@ -993,12 +1007,12 @@ namespace Crash
 						// Add timeout protection to prevent hanging on bad operations
 						auto start = std::chrono::steady_clock::now();
 						constexpr auto timeout = std::chrono::seconds(30);
-						
+
 						a_functor();
-						
+
 						auto elapsed = std::chrono::steady_clock::now() - start;
 						if (elapsed > std::chrono::seconds(5)) {
-							log->critical("\t{}: completed in {:.1f}s (slow)"sv, a_name, 
+							log->critical("\t{}: completed in {:.1f}s (slow)"sv, a_name,
 								std::chrono::duration<double>(elapsed).count());
 						}
 					} catch (const std::exception& e) {
@@ -1013,11 +1027,11 @@ namespace Crash
 				const auto now = std::time(nullptr);
 				std::tm local_time{};
 				if (localtime_s(&local_time, &now) == 0) {
-					log->critical("CRASH TIME: {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv, 
+					log->critical("CRASH TIME: {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv,
 						local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
 						local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
 				}
-				
+
 				const auto runtimeVer = REL::Module::get().version();
 				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
 				log->critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
@@ -1054,18 +1068,37 @@ namespace Crash
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
 
+				// Ensure all log data is written to disk before we try to open the file
+				log->flush();
+
 			} catch (const SEHException& se) {
 				// Log the SEH exception converted to a C++ exception
-				const auto log = get_log();
+				auto [log, logPath] = get_log();
 				log->critical("SEH Exception caught: {} (Code: 0x{:X})", se.what(), se.code());
+				log->flush();
 			} catch (const std::exception& e) {
 				// Log the C++ exception
-				const auto log = get_log();
+				auto [log, logPath] = get_log();
 				log->critical("Caught C++ exception: {}", e.what());
+				log->flush();
 			} catch (...) {
 				// Catch any other unknown exception
-				const auto log = get_log();
+				auto [log, logPath] = get_log();
 				log->critical("Caught an unknown exception");
+				log->flush();
+			}
+
+			// Auto-open crash log if enabled
+			if (!crashLogPath.empty() && Settings::GetSingleton()->GetDebug().autoOpenCrashLog) {
+				// Ensure file exists before trying to open
+				if (std::filesystem::exists(crashLogPath)) {
+					const auto result = ShellExecuteW(nullptr, L"open", crashLogPath.wstring().c_str(), nullptr, nullptr, SW_SHOW);
+					// ShellExecute returns a value <= 32 if it fails
+					if (reinterpret_cast<INT_PTR>(result) <= 32) {
+						// Fallback: try opening with notepad explicitly
+						ShellExecuteW(nullptr, L"open", L"notepad.exe", crashLogPath.wstring().c_str(), nullptr, SW_SHOW);
+					}
+				}
 			}
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
@@ -1078,7 +1111,6 @@ namespace Crash
 		}
 	}  // namespace
 
-
 	void Install(std::string a_crashPath)
 	{
 		// Set crash path first
@@ -1086,7 +1118,7 @@ namespace Crash
 			crashPath = a_crashPath;
 			logger::info("Crash Logs will be written to {}", crashPath);
 		}
-		
+
 		// Install crash handlers
 		const auto success =
 			::AddVectoredExceptionHandler(1, reinterpret_cast<::PVECTORED_EXCEPTION_HANDLER>(&VectoredExceptions));
@@ -1094,13 +1126,13 @@ namespace Crash
 			util::report_and_fail("failed to install vectored exception handler"sv);
 		}
 		logger::info("installed crash handlers"sv);
-		
-		// Verify handlers are working by testing (in debug builds only)
-		#ifdef _DEBUG
-		if (const auto& debugConfig = Settings::GetSingleton()->GetDebug(); 
+
+// Verify handlers are working by testing (in debug builds only)
+#ifdef _DEBUG
+		if (const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 			debugConfig.waitForDebugger) {
 			logger::debug("Crash handler installation verified (debug mode)");
 		}
-		#endif
+#endif
 	}
 }  // namespace Crash
