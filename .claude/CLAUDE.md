@@ -17,7 +17,7 @@ cmake --preset Release-MSVC
 cmake --build --preset Release-MSVC
 
 # Or configure and build with specific preset
-cmake --preset Debug-MSVC  
+cmake --preset Debug-MSVC
 cmake --build --preset Debug-MSVC
 
 # Build with Clang
@@ -32,7 +32,7 @@ ctest --preset All-Tests
 
 # Run specific test categories
 ctest --preset Unit-Tests
-ctest --preset Integration-Tests  
+ctest --preset Integration-Tests
 ctest --preset E2E-Tests
 ```
 
@@ -66,7 +66,7 @@ ctest --preset E2E-Tests
 
 **Crash Handling System (`src/Crash/`)**
 - `CrashHandler` - Main crash interception and reporting
-- `Callstack` - Stack trace generation and analysis  
+- `Callstack` - Stack trace generation and analysis
 - `Introspection/` - Runtime code analysis
 - `Modules/ModuleHandler` - Loaded module tracking
 - `PDB/PdbHandler` - Symbol resolution from PDB files

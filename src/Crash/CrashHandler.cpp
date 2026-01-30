@@ -244,8 +244,9 @@ namespace Crash
 		{
 			std::string name;
 			std::stringstream content;
-			
-			SectionBuffer(std::string section_name) : name(std::move(section_name)) {}
+
+			SectionBuffer(std::string section_name) :
+				name(std::move(section_name)) {}
 		};
 
 		[[nodiscard]] std::pair<std::shared_ptr<spdlog::logger>, std::filesystem::path> get_log()
@@ -640,24 +641,24 @@ namespace Crash
 
 		// Helper function to get register information
 		auto get_register_info = [](const ::CONTEXT& a_context) {
-			const std::array<std::pair<std::string_view, std::size_t>, 16> regs{{
-				{"RAX"sv, a_context.Rax},
-				{"RCX"sv, a_context.Rcx},
-				{"RDX"sv, a_context.Rdx},
-				{"RBX"sv, a_context.Rbx},
-				{"RSP"sv, a_context.Rsp},
-				{"RBP"sv, a_context.Rbp},
-				{"RSI"sv, a_context.Rsi},
-				{"RDI"sv, a_context.Rdi},
-				{"R8"sv, a_context.R8},
-				{"R9"sv, a_context.R9},
-				{"R10"sv, a_context.R10},
-				{"R11"sv, a_context.R11},
-				{"R12"sv, a_context.R12},
-				{"R13"sv, a_context.R13},
-				{"R14"sv, a_context.R14},
-				{"R15"sv, a_context.R15},
-			}};
+			const std::array<std::pair<std::string_view, std::size_t>, 16> regs{ {
+				{ "RAX"sv, a_context.Rax },
+				{ "RCX"sv, a_context.Rcx },
+				{ "RDX"sv, a_context.Rdx },
+				{ "RBX"sv, a_context.Rbx },
+				{ "RSP"sv, a_context.Rsp },
+				{ "RBP"sv, a_context.Rbp },
+				{ "RSI"sv, a_context.Rsi },
+				{ "RDI"sv, a_context.Rdi },
+				{ "R8"sv, a_context.R8 },
+				{ "R9"sv, a_context.R9 },
+				{ "R10"sv, a_context.R10 },
+				{ "R11"sv, a_context.R11 },
+				{ "R12"sv, a_context.R12 },
+				{ "R13"sv, a_context.R13 },
+				{ "R14"sv, a_context.R14 },
+				{ "R15"sv, a_context.R15 },
+			} };
 			std::array<std::size_t, regs.size()> values{};
 			for (std::size_t i = 0; i < regs.size(); ++i) {
 				values[i] = regs[i].second;
@@ -679,7 +680,7 @@ namespace Crash
 		// Helper function to analyze registers with backfilling
 		auto analyze_registers = [](const ::CONTEXT& a_context, std::span<const module_pointer> a_modules) {
 			const auto [regs, regValues] = get_register_info(a_context);
-			auto analysis = Introspection::analyze_data(regValues, a_modules, [&](size_t i){ return std::string(regs[i].first); });
+			auto analysis = Introspection::analyze_data(regValues, a_modules, [&](size_t i) { return std::string(regs[i].first); });
 			Introspection::backfill_void_pointers(analysis, regValues);
 			return std::make_pair(regs, analysis);
 		};
@@ -689,26 +690,26 @@ namespace Crash
 			const auto scanSize = std::min(stack.size(), max_scan);
 			std::vector<std::vector<std::string>> all_analysis_results;
 			std::vector<std::span<const std::size_t>> all_address_spans;
-			
+
 			for (std::size_t off = 0; off < scanSize; off += block_size) {
 				auto block_span = stack.subspan(off, std::min<std::size_t>(scanSize - off, block_size));
 				auto analysis = Introspection::analyze_data(
-					block_span, a_modules, [&](size_t i){ return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
+					block_span, a_modules, [&](size_t i) { return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
 				all_analysis_results.push_back(std::move(analysis));
 				all_address_spans.push_back(block_span);
 			}
-			
+
 			// Backfill all results at once
 			for (std::size_t block_idx = 0; block_idx < all_analysis_results.size(); ++block_idx) {
 				Introspection::backfill_void_pointers(all_analysis_results[block_idx], all_address_spans[block_idx]);
 			}
-			
+
 			return all_analysis_results;
 		};
 
 		// Overload for printing registers with pre-analyzed results
 		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
-		std::span<const module_pointer> a_modules, const std::vector<std::string>& pre_analyzed)
+			std::span<const module_pointer> a_modules, const std::vector<std::string>& pre_analyzed)
 		{
 			a_log.critical("REGISTERS:"sv);
 
@@ -720,14 +721,14 @@ namespace Crash
 		}
 
 		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
-		std::span<const module_pointer> a_modules)
+			std::span<const module_pointer> a_modules)
 		{
 			const auto [regs, analysis] = analyze_registers(a_context, a_modules);
 			print_registers(a_log, a_context, a_modules, analysis);
 		}
 
 		// Overload for printing stack with pre-analyzed results
-		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules, 
+		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules,
 			const std::vector<std::vector<std::string>>& pre_analyzed_blocks)
 		{
 			const auto stack_opt = get_stack_info(a_context);
@@ -756,7 +757,7 @@ namespace Crash
 			}
 		}
 
-	void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
+		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
 		{
 			const auto stack_opt = get_stack_info(a_context);
 			if (!stack_opt) {
@@ -780,7 +781,7 @@ namespace Crash
 				// Print up to 128 most relevant objects
 				constexpr std::size_t MAX_OBJECTS = 128;
 				const auto objectCount = std::min(sortedObjects.size(), MAX_OBJECTS);
-				
+
 				if (objectCount == 0) {
 					a_log.critical("\tNone found"sv);
 				} else {
@@ -1150,8 +1151,8 @@ namespace Crash
 				auto [log, logPath] = get_log();
 				crashLogPath = logPath;
 
-			// Collection to gather relevant objects during analysis
-			RelevantObjectsCollection relevantObjects;
+				// Collection to gather relevant objects during analysis
+				RelevantObjectsCollection relevantObjects;
 
 				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
@@ -1190,40 +1191,40 @@ namespace Crash
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
-			
-			// Collect relevant objects from registers and stack (fast pass, no printing)
-			try {
-				// Collect from registers
-				const auto [regs, regAnalysis] = analyze_registers(*a_exception->ContextRecord, cmodules);
-				for (std::size_t i = 0; i < regs.size(); ++i) {
-					relevantObjects.add(regs[i].second, regAnalysis[i], std::string(regs[i].first), 0);
-				}
 
-				// Collect from stack (limited to first 512 entries)
-				const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
-				if (stack_opt) {
-					const auto& stack = *stack_opt;
-					constexpr std::size_t MAX_SCAN = 512;
-					const auto stack_analyses = analyze_stack_blocks(stack, cmodules, MAX_SCAN, 256);
-					
-					std::size_t global_idx = 0;
-					for (std::size_t block_idx = 0; block_idx < stack_analyses.size(); ++block_idx) {
-						const auto& analysis = stack_analyses[block_idx];
-						for (std::size_t idx = 0; idx < analysis.size(); ++idx) {
-							const auto distance = global_idx * sizeof(std::size_t);
-							relevantObjects.add(stack[global_idx], analysis[idx], 
-								fmt::format("RSP+{:X}", distance), distance + 1000);
-							++global_idx;
+				// Collect relevant objects from registers and stack (fast pass, no printing)
+				try {
+					// Collect from registers
+					const auto [regs, regAnalysis] = analyze_registers(*a_exception->ContextRecord, cmodules);
+					for (std::size_t i = 0; i < regs.size(); ++i) {
+						relevantObjects.add(regs[i].second, regAnalysis[i], std::string(regs[i].first), 0);
+					}
+
+					// Collect from stack (limited to first 512 entries)
+					const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
+					if (stack_opt) {
+						const auto& stack = *stack_opt;
+						constexpr std::size_t MAX_SCAN = 512;
+						const auto stack_analyses = analyze_stack_blocks(stack, cmodules, MAX_SCAN, 256);
+
+						std::size_t global_idx = 0;
+						for (std::size_t block_idx = 0; block_idx < stack_analyses.size(); ++block_idx) {
+							const auto& analysis = stack_analyses[block_idx];
+							for (std::size_t idx = 0; idx < analysis.size(); ++idx) {
+								const auto distance = global_idx * sizeof(std::size_t);
+								relevantObjects.add(stack[global_idx], analysis[idx],
+									fmt::format("RSP+{:X}", distance), distance + 1000);
+								++global_idx;
+							}
 						}
 					}
+				} catch (...) {
+					// If object collection fails, continue without it
 				}
-			} catch (...) {
-				// If object collection fails, continue without it
-			}
-			
-			// Print relevant objects section (after exception, before other sections)
-			print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
-			
+
+				// Print relevant objects section (after exception, before other sections)
+				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
+
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 				if (REL::Module::IsVR())
@@ -1248,55 +1249,56 @@ namespace Crash
 				},
 					"probable_callstack");
 
-			// Analyze registers and stack first, then backfill, then print
-			try {
-				// Helper struct for uniform backfill processing
-				struct AnalysisBlock {
-					std::vector<std::string> analysis;
-					std::span<const std::size_t> addresses;
-				};
-				std::vector<AnalysisBlock> allBlocks;
+				// Analyze registers and stack first, then backfill, then print
+				try {
+					// Helper struct for uniform backfill processing
+					struct AnalysisBlock
+					{
+						std::vector<std::string> analysis;
+						std::span<const std::size_t> addresses;
+					};
+					std::vector<AnalysisBlock> allBlocks;
 
-				// Analyze registers
-				const auto [regs, regAnalysis] = analyze_registers(*a_exception->ContextRecord, cmodules);
-				const auto [dummy_regs, regValues] = get_register_info(*a_exception->ContextRecord);
-				allBlocks.push_back({regAnalysis, regValues});
+					// Analyze registers
+					const auto [regs, regAnalysis] = analyze_registers(*a_exception->ContextRecord, cmodules);
+					const auto [dummy_regs, regValues] = get_register_info(*a_exception->ContextRecord);
+					allBlocks.push_back({ regAnalysis, regValues });
 
-				// Analyze stack blocks
-				const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
-				if (stack_opt) {
-					const auto& stack = *stack_opt;
-					constexpr std::size_t MAX_SCAN = 512;
-					const auto scanSize = std::min(stack.size(), MAX_SCAN);
-					
-					constexpr std::size_t blockSize = 256;
-					for (std::size_t off = 0; off < scanSize; off += blockSize) {
-						auto block = stack.subspan(off, std::min<std::size_t>(scanSize - off, blockSize));
-						auto analysis = Introspection::analyze_data(block, cmodules, [&](size_t i){ return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
-						allBlocks.push_back({std::move(analysis), block});
+					// Analyze stack blocks
+					const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
+					if (stack_opt) {
+						const auto& stack = *stack_opt;
+						constexpr std::size_t MAX_SCAN = 512;
+						const auto scanSize = std::min(stack.size(), MAX_SCAN);
+
+						constexpr std::size_t blockSize = 256;
+						for (std::size_t off = 0; off < scanSize; off += blockSize) {
+							auto block = stack.subspan(off, std::min<std::size_t>(scanSize - off, blockSize));
+							auto analysis = Introspection::analyze_data(block, cmodules, [&](size_t i) { return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
+							allBlocks.push_back({ std::move(analysis), block });
+						}
 					}
-				}
 
-				// Backfill all analyzed data uniformly
-				for (auto& block : allBlocks) {
-					Introspection::backfill_void_pointers(block.analysis, block.addresses);
-				}
+					// Backfill all analyzed data uniformly
+					for (auto& block : allBlocks) {
+						Introspection::backfill_void_pointers(block.analysis, block.addresses);
+					}
 
-				// Extract backfilled results for printing
-				auto& finalRegAnalysis = allBlocks[0].analysis;
-				std::vector<std::vector<std::string>> stackAnalyses;
-				for (size_t i = 1; i < allBlocks.size(); ++i) {
-					stackAnalyses.push_back(std::move(allBlocks[i].analysis));
-				}
+					// Extract backfilled results for printing
+					auto& finalRegAnalysis = allBlocks[0].analysis;
+					std::vector<std::vector<std::string>> stackAnalyses;
+					for (size_t i = 1; i < allBlocks.size(); ++i) {
+						stackAnalyses.push_back(std::move(allBlocks[i].analysis));
+					}
 
-				// Print with pre-analyzed data
-				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules, finalRegAnalysis); }, "print_registers");
-				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules, stackAnalyses); }, "print_raw_stack");
-			} catch (...) {
-				// Fallback to original behavior if analysis fails
-				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
-				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
-			}
+					// Print with pre-analyzed data
+					print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules, finalRegAnalysis); }, "print_registers");
+					print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules, stackAnalyses); }, "print_raw_stack");
+				} catch (...) {
+					// Fallback to original behavior if analysis fails
+					print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
+					print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
+				}
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");

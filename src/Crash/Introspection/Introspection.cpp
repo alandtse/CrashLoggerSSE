@@ -1120,8 +1120,7 @@ namespace Crash::Introspection::SSE
 					const auto maxPageSize = object->maxPageSize;
 					a_results.emplace_back(
 						fmt::format("{:\t>{}}Page Sizes", "", tab_depth),
-						fmt::format("{} - {} bytes", minPageSize, maxPageSize)
-					);
+						fmt::format("{} - {} bytes", minPageSize, maxPageSize));
 				} catch (...) {}
 
 				try {
@@ -1129,8 +1128,7 @@ namespace Crash::Introspection::SSE
 					const auto ignoreMemoryLimit = object->ignoreMemoryLimit;
 					a_results.emplace_back(
 						fmt::format("{:\t>{}}Memory Limit", "", tab_depth),
-						fmt::format("{} bytes (Ignored: {})", maxAllocatedMemory, ignoreMemoryLimit)
-					);
+						fmt::format("{} bytes (Ignored: {})", maxAllocatedMemory, ignoreMemoryLimit));
 				} catch (...) {}
 
 				try {
@@ -1139,8 +1137,7 @@ namespace Crash::Introspection::SSE
 					const auto percentage = maxAllocatedMemory > 0 ? (static_cast<double>(currentMemorySize) / maxAllocatedMemory) * 100.0 : 0.0;
 					a_results.emplace_back(
 						fmt::format("{:\t>{}}Current Usage", "", tab_depth),
-						fmt::format("{} / {} bytes ({:.2f}%)", currentMemorySize, maxAllocatedMemory, percentage)
-					);
+						fmt::format("{} / {} bytes ({:.2f}%)", currentMemorySize, maxAllocatedMemory, percentage));
 				} catch (...) {}
 
 				try {
@@ -1148,8 +1145,7 @@ namespace Crash::Introspection::SSE
 					if (maxAdditionalAllocations > 0) {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Max Additional Allocations", "", tab_depth),
-							fmt::format("{}", maxAdditionalAllocations)
-						);
+							fmt::format("{}", maxAdditionalAllocations));
 					}
 				} catch (...) {}
 			}

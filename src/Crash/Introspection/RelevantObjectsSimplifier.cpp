@@ -1,7 +1,7 @@
 #include "RelevantObjectsSimplifier.h"
 #include <algorithm>
-#include <vector>
 #include <utility>
+#include <vector>
 
 namespace Crash::Introspection
 {
@@ -18,7 +18,7 @@ namespace Crash::Introspection
 
 			// Move past the key and colon
 			auto value_start = key_pos + search_key.length();
-			
+
 			// Skip leading whitespace
 			while (value_start < analysis.length() && analysis[value_start] == ' ') {
 				value_start++;
@@ -31,7 +31,7 @@ namespace Crash::Introspection
 			}
 
 			std::string value(analysis.substr(value_start, value_end - value_start));
-			
+
 			// Trim quotes
 			while (!value.empty() && (value.front() == '\"' || value.front() == ' ')) {
 				value = value.substr(1);
@@ -131,7 +131,7 @@ namespace Crash::Introspection
 		}
 
 		// Build concise output based on type
-		
+
 		// Special case: BSScript::NF_util::NativeFunctionBase
 		if (type_name.find("NativeFunctionBase") != std::string::npos) {
 			if (!object.empty() && !function.empty()) {
@@ -183,7 +183,8 @@ namespace Crash::Introspection
 			if (!quest_info.empty()) {
 				result += " {";
 				for (size_t i = 0; i < quest_info.size(); ++i) {
-					if (i > 0) result += ", ";
+					if (i > 0)
+						result += ", ";
 					result += quest_info[i];
 				}
 				result += "}";
