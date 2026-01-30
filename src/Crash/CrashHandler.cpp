@@ -1,6 +1,7 @@
 #include "Crash/CrashHandler.h"
 
 #include "Crash/Introspection/Introspection.h"
+#include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "dxgi1_4.h"
@@ -198,6 +199,55 @@ namespace Crash
 
 	namespace
 	{
+		// Structure to hold information about a relevant game object found during crash analysis
+		struct RelevantObject
+		{
+			std::size_t address;
+			std::string full_analysis;  // Full introspection output
+			std::string location;       // Register name or stack offset
+			std::size_t distance;       // Lower = closer to exception (0 = in registers, 1+ = stack offset)
+		};
+
+		// Collection to store interesting objects found during analysis
+		struct RelevantObjectsCollection
+		{
+			std::map<std::size_t, RelevantObject> objects;
+
+			void add(std::size_t address, std::string full_analysis, std::string location, std::size_t distance)
+			{
+				// Only add if address is valid and we haven't seen it yet
+				if (address != 0 && objects.find(address) == objects.end()) {
+					// Check if this analysis has filter output (detailed game object)
+					if (full_analysis.find("\n\t\t") != std::string::npos) {
+						objects[address] = { address, std::move(full_analysis), std::move(location), distance };
+					}
+				}
+			}
+
+			std::vector<RelevantObject> get_sorted() const
+			{
+				std::vector<RelevantObject> sorted;
+				sorted.reserve(objects.size());
+				for (const auto& [addr, obj] : objects) {
+					sorted.push_back(obj);
+				}
+				std::sort(sorted.begin(), sorted.end(),
+					[](const RelevantObject& a, const RelevantObject& b) {
+						return a.distance < b.distance;
+					});
+				return sorted;
+			}
+		};
+
+		// Structure to buffer section output for reordering
+		struct SectionBuffer
+		{
+			std::string name;
+			std::stringstream content;
+			
+			SectionBuffer(std::string section_name) : name(std::move(section_name)) {}
+		};
+
 		[[nodiscard]] std::pair<std::shared_ptr<spdlog::logger>, std::filesystem::path> get_log()
 		{
 			std::optional<std::filesystem::path> path = crashPath;
@@ -589,7 +639,7 @@ namespace Crash
 		}
 
 		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
-			std::span<const module_pointer> a_modules)
+		std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("REGISTERS:"sv);
 
@@ -623,7 +673,7 @@ namespace Crash
 			}
 		}
 
-		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
+	void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("STACK:"sv);
 
@@ -646,11 +696,45 @@ namespace Crash
 				for (std::size_t off = 0; off < stack.size(); off += blockSize) {
 					const auto analysis = Introspection::analyze_data(
 						stack.subspan(off, std::min<std::size_t>(stack.size() - off, blockSize)), a_modules);
-					for (const auto& data : analysis) {
+					for (std::size_t i = 0; i < analysis.size(); ++i) {
+						const auto& data = analysis[i];
 						a_log.critical(fmt::runtime(format), idx * sizeof(std::size_t), stack[idx], data);
 						++idx;
 					}
 				}
+			}
+		}
+
+		void print_relevant_objects_section(spdlog::logger& a_log, const RelevantObjectsCollection& collection)
+		{
+			a_log.critical("POSSIBLE RELEVANT OBJECTS:"sv);
+
+			try {
+				const auto sortedObjects = collection.get_sorted();
+
+				// Print up to 128 most relevant objects
+				constexpr std::size_t MAX_OBJECTS = 128;
+				const auto objectCount = std::min(sortedObjects.size(), MAX_OBJECTS);
+				
+				if (objectCount == 0) {
+					a_log.critical("\tNone found"sv);
+				} else {
+					for (std::size_t i = 0; i < objectCount; ++i) {
+						const auto& obj = sortedObjects[i];
+						// Simplify the full analysis for concise display
+						const auto simplified = Introspection::simplify_for_relevant_objects(obj.full_analysis);
+						if (!simplified.empty()) {
+							a_log.critical("\t{}: {}"sv, obj.location, simplified);
+						}
+					}
+					if (sortedObjects.size() > MAX_OBJECTS) {
+						a_log.critical("\t... and {} more (truncated)"sv, sortedObjects.size() - MAX_OBJECTS);
+					}
+				}
+			} catch (const std::exception& e) {
+				a_log.critical("\tFailed to print objects: {}"sv, e.what());
+			} catch (...) {
+				a_log.critical("\tFailed to print objects: unknown error"sv);
 			}
 		}
 
@@ -1001,6 +1085,9 @@ namespace Crash
 				auto [log, logPath] = get_log();
 				crashLogPath = logPath;
 
+			// Collection to gather relevant objects during analysis
+			RelevantObjectsCollection relevantObjects;
+
 				const auto print = [&](auto&& a_functor, std::string a_name = "") {
 					log->critical(""sv);
 					try {
@@ -1038,6 +1125,65 @@ namespace Crash
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
+			
+			// Collect relevant objects from registers and stack (fast pass, no printing)
+			try {
+				// Collect from registers
+				const std::array regs{
+					std::make_pair("RAX"sv, a_exception->ContextRecord->Rax),
+					std::make_pair("RCX"sv, a_exception->ContextRecord->Rcx),
+					std::make_pair("RDX"sv, a_exception->ContextRecord->Rdx),
+					std::make_pair("RBX"sv, a_exception->ContextRecord->Rbx),
+					std::make_pair("RSP"sv, a_exception->ContextRecord->Rsp),
+					std::make_pair("RBP"sv, a_exception->ContextRecord->Rbp),
+					std::make_pair("RSI"sv, a_exception->ContextRecord->Rsi),
+					std::make_pair("RDI"sv, a_exception->ContextRecord->Rdi),
+					std::make_pair("R8"sv, a_exception->ContextRecord->R8),
+					std::make_pair("R9"sv, a_exception->ContextRecord->R9),
+					std::make_pair("R10"sv, a_exception->ContextRecord->R10),
+					std::make_pair("R11"sv, a_exception->ContextRecord->R11),
+					std::make_pair("R12"sv, a_exception->ContextRecord->R12),
+					std::make_pair("R13"sv, a_exception->ContextRecord->R13),
+					std::make_pair("R14"sv, a_exception->ContextRecord->R14),
+					std::make_pair("R15"sv, a_exception->ContextRecord->R15),
+				};
+				std::array<std::size_t, regs.size()> regValues{};
+				for (std::size_t i = 0; i < regs.size(); ++i) {
+					regValues[i] = regs[i].second;
+				}
+				const auto regAnalysis = Introspection::analyze_data(regValues, cmodules);
+				for (std::size_t i = 0; i < regs.size(); ++i) {
+					relevantObjects.add(regs[i].second, regAnalysis[i], std::string(regs[i].first), 0);
+				}
+
+				// Collect from stack (limited to first 512 entries)
+				const auto tib = reinterpret_cast<const ::NT_TIB*>(::NtCurrentTeb());
+				const auto base = tib ? static_cast<const std::size_t*>(tib->StackBase) : nullptr;
+				if (base) {
+					const auto rsp = reinterpret_cast<const std::size_t*>(a_exception->ContextRecord->Rsp);
+					std::span stack{ rsp, base };
+					constexpr std::size_t MAX_SCAN = 512;
+					const auto scanSize = std::min(stack.size(), MAX_SCAN);
+					
+					constexpr std::size_t blockSize = 256;
+					for (std::size_t off = 0; off < scanSize; off += blockSize) {
+						const auto analysis = Introspection::analyze_data(
+							stack.subspan(off, std::min<std::size_t>(scanSize - off, blockSize)), cmodules);
+						for (std::size_t idx = 0; idx < analysis.size(); ++idx) {
+							const auto globalIdx = off + idx;
+							const auto distance = globalIdx * sizeof(std::size_t);
+							relevantObjects.add(stack[globalIdx], analysis[idx], 
+								fmt::format("RSP+{:X}", distance), distance + 1000);
+						}
+					}
+				}
+			} catch (...) {
+				// If object collection fails, continue without it
+			}
+			
+			// Print relevant objects section (after exception, before other sections)
+			print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
+			
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 				if (REL::Module::IsVR())
@@ -1062,8 +1208,8 @@ namespace Crash
 				},
 					"probable_callstack");
 
-				print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
-				print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
+			print([&]() { print_registers(*log, *a_exception->ContextRecord, cmodules); }, "print_registers");
+			print([&]() { print_stack(*log, *a_exception->ContextRecord, cmodules); }, "print_raw_stack");
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
@@ -1102,6 +1248,7 @@ namespace Crash
 			}
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+			return EXCEPTION_CONTINUE_SEARCH;
 		}
 
 		std::int32_t _stdcall VectoredExceptions(::EXCEPTION_POINTERS*) noexcept

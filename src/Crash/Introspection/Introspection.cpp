@@ -1760,4 +1760,182 @@ namespace Crash::Introspection
 			});
 		return results;
 	}
+
+	std::string get_simplified_object_info(std::string_view full_analysis)
+	{
+		// Check if this analysis contains filter output (game object with details)
+		// Filter output has format: "(TypeName*)\n\t\tKey: Value\n\t\tKey: Value..."
+		auto detail_pos = full_analysis.find("\n\t\t");
+		if (detail_pos == std::string_view::npos) {
+			// Not a game object with filter output
+			return "";
+		}
+
+		// Extract the type name (everything before the first newline)
+		std::string result(full_analysis.substr(0, detail_pos));
+
+		// Parse all first-level (tab_depth=0) key-value pairs
+		// These are lines that start with "\n\t\t" and don't contain nested data
+		std::vector<std::pair<std::string, std::string>> first_level_fields;
+		
+		size_t pos = detail_pos;
+		while (pos < full_analysis.length()) {
+			// Find next key-value pair at first level (starts with "\n\t\t")
+			auto next_key = full_analysis.find("\n\t\t", pos);
+			if (next_key == std::string_view::npos) break;
+			
+			next_key += 3; // Skip "\n\t\t"
+			
+			// Check if this is a nested field (tab_depth > 0) by looking for additional tabs
+			if (next_key < full_analysis.length() && full_analysis[next_key] == '\t') {
+				// This is nested data (tab_depth > 0), skip it
+				pos = next_key;
+				continue;
+			}
+			
+			// Find the colon separator
+			auto colon_pos = full_analysis.find(':', next_key);
+			if (colon_pos == std::string_view::npos || colon_pos > full_analysis.find('\n', next_key)) {
+				pos = next_key;
+				continue;
+			}
+			
+			// Extract key
+			auto key = full_analysis.substr(next_key, colon_pos - next_key);
+			
+			// Extract value (until next newline)
+			auto value_start = colon_pos + 1;
+			// Skip leading space after colon
+			while (value_start < full_analysis.length() && full_analysis[value_start] == ' ') {
+				value_start++;
+			}
+			
+			auto value_end = full_analysis.find('\n', value_start);
+			if (value_end == std::string_view::npos) {
+				value_end = full_analysis.length();
+			}
+			
+			auto value = full_analysis.substr(value_start, value_end - value_start);
+			
+			// Skip recursive/nested markers like "---", "-----", empty values
+			std::string value_str(value);
+			// Trim quotes and whitespace
+			while (!value_str.empty() && (value_str.front() == '\"' || value_str.front() == ' ')) {
+				value_str = value_str.substr(1);
+			}
+			while (!value_str.empty() && (value_str.back() == '\"' || value_str.back() == ' ')) {
+				value_str.pop_back();
+			}
+			
+			// Skip if it's just dashes (indicates nested data follows)
+			bool is_separator = !value_str.empty() && value_str.find_first_not_of('-') == std::string::npos;
+			
+			if (!value_str.empty() && !is_separator) {
+				first_level_fields.emplace_back(std::string(key), value_str);
+			}
+			
+			pos = value_end;
+		}
+
+		// Now intelligently format the most useful fields
+		// Priority order for different types of information:
+		// 1. Names (human-readable identifiers)
+		// 2. IDs (technical identifiers) 
+		// 3. Files/Locations (source information)
+		// 4. Other useful context
+		
+		std::vector<std::string> identifiers;
+		std::vector<std::string> context_info;
+		
+		for (const auto& [key, value] : first_level_fields) {
+			// Categorize and format based on key type
+			if (key == "Name" || key == "GetFullName" || key == "DisplayName" || key == "Full Name") {
+				// Primary name - always show first
+				identifiers.insert(identifiers.begin(), fmt::format("\"{}\"", value));
+			}
+			else if (key == "FormID") {
+				// FormID - strip 0x prefix and format
+				std::string formID = value;
+				if (formID.starts_with("0x") || formID.starts_with("0X")) {
+					formID = formID.substr(2);
+				}
+				identifiers.push_back(fmt::format("[0x{}]", formID));
+			}
+			else if (key == "File" || key == "Filename") {
+				// Source file - show in parentheses
+				identifiers.push_back(fmt::format("({})", value));
+			}
+			else if (key == "Function" || key == "Object" || key == "State") {
+				// Script/function info - useful for scripts
+				context_info.push_back(fmt::format("{}={}", key, value));
+			}
+			else if (key == "Stack Trace") {
+				// For CodeTasklet - find the most informative line (not <native>, has FormID and script)
+				// Example: [ (0003AE92)].CritterSpawn.OnLoad() - "CritterSpawn.psc" Line 83
+				std::string best_line;
+				size_t line_start = 0;
+				
+				while (line_start < value.length()) {
+					auto line_end = value.find('\n', line_start);
+					if (line_end == std::string::npos) line_end = value.length();
+					
+					auto line = value.substr(line_start, line_end - line_start);
+					
+					// Trim whitespace
+					while (!line.empty() && line.front() == ' ') line = line.substr(1);
+					while (!line.empty() && line.back() == ' ') line.pop_back();
+					
+					// Look for lines with FormID (has parentheses with hex) and actual script file (.psc)
+					// Skip <native> calls as they're less informative
+					if (!line.empty() && 
+					    line.find('(') != std::string::npos && 
+					    line.find(").") != std::string::npos &&
+					    line.find(".psc") != std::string::npos) {
+						best_line = std::string(line);
+						break; // Found a good script call, use it
+					}
+					
+					// Fallback: any non-native line
+					if (best_line.empty() && !line.empty() && line.find("<native>") == std::string::npos) {
+						best_line = std::string(line);
+					}
+					
+					line_start = line_end + 1;
+				}
+				
+				// If we only found native calls, just use first line
+				if (best_line.empty() && !value.empty()) {
+					auto first_line_end = value.find('\n');
+					best_line = std::string(value.substr(0, first_line_end != std::string::npos ? first_line_end : value.length()));
+					while (!best_line.empty() && best_line.front() == ' ') best_line = best_line.substr(1);
+					while (!best_line.empty() && best_line.back() == ' ') best_line.pop_back();
+				}
+				
+				if (!best_line.empty()) {
+					context_info.push_back(fmt::format("Stack: {}", best_line));
+				}
+			}
+			else if (key.find("Checking") == std::string::npos && 
+			         key.find("Owner") == std::string::npos &&
+					 key.find("Parent") == std::string::npos &&
+					 value.length() < 50) { // Avoid very long values
+				// Other useful short fields
+				context_info.push_back(fmt::format("{}={}", key, value));
+			}
+		}
+
+		// Combine all information
+		if (!identifiers.empty()) {
+			result += " " + fmt::format("{}", fmt::join(identifiers, " "));
+		}
+		if (!context_info.empty()) {
+			// Limit to first 2-3 context items to keep it readable
+			size_t context_limit = std::min<size_t>(3, context_info.size());
+			result += " {" + fmt::format("{}", fmt::join(
+				std::vector<std::string>(context_info.begin(), context_info.begin() + context_limit), 
+				", ")) + "}";
+		}
+
+		return result;
+	}
 }
