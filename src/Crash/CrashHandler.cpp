@@ -1,5 +1,7 @@
 #include "Crash/CrashHandler.h"
 
+#include "Crash/Analysis.h"
+#include "Crash/CommonHeader.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
@@ -146,35 +148,16 @@ namespace Crash
 			a_log.critical("Stack trace truncated to {} frames (original: {})", MAX_FRAMES, _frames.size());
 		}
 
-		std::vector<const Modules::Module*> moduleStack;
-		moduleStack.reserve(frame_count);
+		// Build frame data using shared DRY code
+		std::vector<FrameData> frame_data;
+		frame_data.reserve(frame_count);
 
 		for (std::size_t i = 0; i < frame_count; ++i) {
 			try {
 				const auto& frame = _frames[i];
-				const auto mod = Introspection::get_module_for_pointer(frame.address(), a_modules);
-				if (mod && mod->in_range(frame.address())) {
-					moduleStack.push_back(mod);
-				} else {
-					moduleStack.push_back(nullptr);
-				}
-			} catch (...) {
-				// Invalid frame, mark as null and continue
-				moduleStack.push_back(nullptr);
-			}
-		}
+				const auto addr = frame.address();
+				const auto mod = Introspection::get_module_for_pointer(addr, a_modules);
 
-		const auto format = get_format([&]() {
-			std::size_t max = 0;
-			std::for_each(moduleStack.begin(), moduleStack.end(),
-				[&](auto&& a_elem) { max = a_elem ? std::max(max, a_elem->name().length()) : max; });
-			return max;
-		}());
-
-		for (std::size_t i = 0; i < frame_count && i < moduleStack.size(); ++i) {
-			try {
-				const auto mod = moduleStack[i];
-				const auto& frame = _frames[i];
 				const auto frame_info = mod ? [&]() {
 					try {
 						return mod->frame_info(frame);
@@ -183,12 +166,16 @@ namespace Crash
 					}
 				}() :
 				                              ""s;
-				a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(frame.address()),
-					(mod ? mod->name() : ""sv), frame_info);
+
+				frame_data.push_back({ addr, mod, frame_info });
 			} catch (...) {
-				a_log.critical("[Frame {} processing failed]", i);
+				// Invalid frame, add placeholder
+				frame_data.push_back({ nullptr, nullptr, "[frame processing failed]"s });
 			}
 		}
+
+		// Use shared printing logic (DRY)
+		print_callstack_impl(a_log, frame_data, "\t"sv);
 	}
 
 	void Callstack::print_raw_callstack(spdlog::logger& a_log) const
@@ -672,138 +659,6 @@ namespace Crash
 			}
 		}
 
-		// Helper function to get register information
-		auto get_register_info = [](const ::CONTEXT& a_context) {
-			const std::array<std::pair<std::string_view, std::size_t>, 16> regs{ {
-				{ "RAX"sv, a_context.Rax },
-				{ "RCX"sv, a_context.Rcx },
-				{ "RDX"sv, a_context.Rdx },
-				{ "RBX"sv, a_context.Rbx },
-				{ "RSP"sv, a_context.Rsp },
-				{ "RBP"sv, a_context.Rbp },
-				{ "RSI"sv, a_context.Rsi },
-				{ "RDI"sv, a_context.Rdi },
-				{ "R8"sv, a_context.R8 },
-				{ "R9"sv, a_context.R9 },
-				{ "R10"sv, a_context.R10 },
-				{ "R11"sv, a_context.R11 },
-				{ "R12"sv, a_context.R12 },
-				{ "R13"sv, a_context.R13 },
-				{ "R14"sv, a_context.R14 },
-				{ "R15"sv, a_context.R15 },
-			} };
-			std::array<std::size_t, regs.size()> values{};
-			for (std::size_t i = 0; i < regs.size(); ++i) {
-				values[i] = regs[i].second;
-			}
-			return std::make_pair(regs, values);
-		};
-
-		// Helper function to get stack information
-		auto get_stack_info = [](const ::CONTEXT& a_context) -> std::optional<std::span<const std::size_t>> {
-			const auto tib = reinterpret_cast<const ::NT_TIB*>(::NtCurrentTeb());
-			const auto base = tib ? static_cast<const std::size_t*>(tib->StackBase) : nullptr;
-			if (!base) {
-				return std::nullopt;
-			}
-			const auto rsp = reinterpret_cast<const std::size_t*>(a_context.Rsp);
-			return std::span{ rsp, base };
-		};
-
-		// Helper function to analyze registers with backfilling
-		auto analyze_registers = [](const ::CONTEXT& a_context, std::span<const module_pointer> a_modules) {
-			const auto [regs, regValues] = get_register_info(a_context);
-			auto analysis = Introspection::analyze_data(regValues, a_modules, [&](size_t i) { return std::string(regs[i].first); });
-			Introspection::backfill_void_pointers(analysis, regValues);
-			return std::make_pair(regs, analysis);
-		};
-
-		// Helper function to analyze stack blocks
-		auto analyze_stack_blocks = [](std::span<const std::size_t> stack, std::span<const module_pointer> a_modules, std::size_t max_scan = std::numeric_limits<std::size_t>::max(), std::size_t block_size = 1000) {
-			const auto scanSize = std::min(stack.size(), max_scan);
-			std::vector<std::vector<std::string>> all_analysis_results;
-			std::vector<std::span<const std::size_t>> all_address_spans;
-
-			for (std::size_t off = 0; off < scanSize; off += block_size) {
-				auto block_span = stack.subspan(off, std::min<std::size_t>(scanSize - off, block_size));
-				auto analysis = Introspection::analyze_data(
-					block_span, a_modules, [&](size_t i) { return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
-				all_analysis_results.push_back(std::move(analysis));
-				all_address_spans.push_back(block_span);
-			}
-
-			// Backfill all results at once
-			for (std::size_t block_idx = 0; block_idx < all_analysis_results.size(); ++block_idx) {
-				Introspection::backfill_void_pointers(all_analysis_results[block_idx], all_address_spans[block_idx]);
-			}
-
-			return all_analysis_results;
-		};
-
-		// Overload for printing registers with pre-analyzed results
-		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
-			std::span<const module_pointer> a_modules, const std::vector<std::string>& pre_analyzed)
-		{
-			a_log.critical("REGISTERS:"sv);
-
-			const auto [regs, regValues] = get_register_info(a_context);
-			for (std::size_t i = 0; i < regs.size(); ++i) {
-				const auto& [name, reg] = regs[i];
-				a_log.critical("\t{:<3} 0x{:<16X} {}"sv, name, reg, pre_analyzed[i]);
-			}
-		}
-
-		void print_registers(spdlog::logger& a_log, const ::CONTEXT& a_context,
-			std::span<const module_pointer> a_modules)
-		{
-			const auto [regs, analysis] = analyze_registers(a_context, a_modules);
-			print_registers(a_log, a_context, a_modules, analysis);
-		}
-
-		// Overload for printing stack with pre-analyzed results
-		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules,
-			const std::vector<std::vector<std::string>>& pre_analyzed_blocks)
-		{
-			const auto stack_opt = get_stack_info(a_context);
-			if (!stack_opt) {
-				a_log.critical("STACK:"sv);
-				a_log.critical("\tFAILED TO READ TIB"sv);
-				return;
-			}
-			const auto& stack = *stack_opt;
-
-			const auto format = [&]() {
-				return "\t[RSP+{:<"s +
-				       fmt::to_string(fmt::format("{:X}"sv, (stack.size() - 1) * sizeof(std::size_t)).length()) +
-				       "X}] 0x{:<16X} {}"s;
-			}();
-
-			// Print the pre-analyzed backfilled results
-			std::size_t global_idx = 0;
-			for (std::size_t block_idx = 0; block_idx < pre_analyzed_blocks.size(); ++block_idx) {
-				const auto& analysis = pre_analyzed_blocks[block_idx];
-				for (std::size_t i = 0; i < analysis.size(); ++i) {
-					const auto& data = analysis[i];
-					a_log.critical(fmt::runtime(format), global_idx * sizeof(std::size_t), stack[global_idx], data);
-					++global_idx;
-				}
-			}
-		}
-
-		void print_stack(spdlog::logger& a_log, const ::CONTEXT& a_context, std::span<const module_pointer> a_modules)
-		{
-			const auto stack_opt = get_stack_info(a_context);
-			if (!stack_opt) {
-				a_log.critical("STACK:"sv);
-				a_log.critical("\tFAILED TO READ TIB"sv);
-				return;
-			}
-			const auto& stack = *stack_opt;
-
-			const auto all_analysis_results = analyze_stack_blocks(stack, a_modules);
-			print_stack(a_log, a_context, a_modules, all_analysis_results);
-		}
-
 		void print_relevant_objects_section(spdlog::logger& a_log, const RelevantObjectsCollection& collection)
 		{
 			a_log.critical("POSSIBLE RELEVANT OBJECTS:"sv);
@@ -1228,7 +1083,8 @@ namespace Crash
 					if (stack_opt) {
 						const auto& stack = *stack_opt;
 						constexpr std::size_t MAX_SCAN = 512;
-						const auto stack_analyses = analyze_stack_blocks(stack, cmodules, MAX_SCAN, 256);
+						const auto limited_stack = stack.subspan(0, std::min(stack.size(), MAX_SCAN));
+						const auto stack_analyses = analyze_stack_blocks(limited_stack, cmodules);
 
 						std::size_t global_idx = 0;
 						for (std::size_t block_idx = 0; block_idx < stack_analyses.size(); ++block_idx) {

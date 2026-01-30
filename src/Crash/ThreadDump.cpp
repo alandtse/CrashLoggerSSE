@@ -1,5 +1,7 @@
 #include "Crash/ThreadDump.h"
+#include "Crash/CommonHeader.h"
 
+#include "Crash/Analysis.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
@@ -143,63 +145,43 @@ namespace Crash
 			ctx.ContextFlags = CONTEXT_FULL;
 
 			if (GetThreadContext(thread, &ctx)) {
-				// Print registers
-				a_log.critical("\tREGISTERS:"sv);
-				a_log.critical("\t\tRAX: 0x{:016X}"sv, ctx.Rax);
-				a_log.critical("\t\tRCX: 0x{:016X}"sv, ctx.Rcx);
-				a_log.critical("\t\tRDX: 0x{:016X}"sv, ctx.Rdx);
-				a_log.critical("\t\tRBX: 0x{:016X}"sv, ctx.Rbx);
-				a_log.critical("\t\tRSP: 0x{:016X}"sv, ctx.Rsp);
-				a_log.critical("\t\tRBP: 0x{:016X}"sv, ctx.Rbp);
-				a_log.critical("\t\tRSI: 0x{:016X}"sv, ctx.Rsi);
-				a_log.critical("\t\tRDI: 0x{:016X}"sv, ctx.Rdi);
-				a_log.critical("\t\tR8:  0x{:016X}"sv, ctx.R8);
-				a_log.critical("\t\tR9:  0x{:016X}"sv, ctx.R9);
-				a_log.critical("\t\tR10: 0x{:016X}"sv, ctx.R10);
-				a_log.critical("\t\tR11: 0x{:016X}"sv, ctx.R11);
-				a_log.critical("\t\tR12: 0x{:016X}"sv, ctx.R12);
-				a_log.critical("\t\tR13: 0x{:016X}"sv, ctx.R13);
-				a_log.critical("\t\tR14: 0x{:016X}"sv, ctx.R14);
-				a_log.critical("\t\tR15: 0x{:016X}"sv, ctx.R15);
-				a_log.critical("\t\tRIP: 0x{:016X}"sv, ctx.Rip);
+				// Print registers WITH introspection (shared DRY code)
+				// This will show what objects/locks each register points to
+				print_registers_safe(a_log, ctx, a_modules);
+				a_log.critical(""sv);
 
 				a_log.critical("\tCALLSTACK:"sv);
 				try {
-					// Print RIP first (current instruction pointer)
-					const auto rip_mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(ctx.Rip), a_modules);
-					if (rip_mod && rip_mod->in_range(reinterpret_cast<void*>(ctx.Rip))) {
-						a_log.critical("\t\t[0] 0x{:012X} {}+{:07X}"sv,
-							ctx.Rip,
-							rip_mod->name(),
-							static_cast<std::uintptr_t>(ctx.Rip - rip_mod->address()));
-					} else {
-						a_log.critical("\t\t[0] 0x{:012X}"sv, ctx.Rip);
-					}
+					// Collect stack frames: RIP first, then scan stack for return addresses
+					std::vector<const void*> frames;
+					frames.reserve(65);  // RIP + up to 64 stack frames
+
+					// Add RIP (current instruction pointer)
+					frames.push_back(reinterpret_cast<const void*>(ctx.Rip));
 
 					// Walk stack from captured CONTEXT's RSP
 					// Scan stack memory for return addresses (limit scan to 4KB / 512 qwords)
-					const auto rsp = reinterpret_cast<const std::size_t*>(ctx.Rsp);
-					size_t frameNum = 1;
-					size_t stackFramesPrinted = 0;
-					constexpr size_t MAX_FRAMES = 64;
-					constexpr size_t MAX_STACK_SCAN = 512;  // 4KB of stack
+					try {
+						const auto rsp = reinterpret_cast<const std::size_t*>(ctx.Rsp);
+						constexpr size_t MAX_FRAMES = 64;
+						constexpr size_t MAX_STACK_SCAN = 512;  // 4KB of stack
 
-					for (size_t i = 0; i < MAX_STACK_SCAN && frameNum < MAX_FRAMES; ++i) {
-						const auto addr = rsp[i];
-						const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
-						if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
-							a_log.critical("\t\t[{}] 0x{:012X} {}+{:07X}"sv,
-								frameNum++,
-								addr,
-								mod->name(),
-								static_cast<std::uintptr_t>(addr - mod->address()));
-							++stackFramesPrinted;
+						for (size_t i = 0; i < MAX_STACK_SCAN && frames.size() < MAX_FRAMES + 1; ++i) {
+							const auto addr = rsp[i];
+							const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
+							if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
+								frames.push_back(reinterpret_cast<const void*>(addr));
+							}
 						}
+					} catch (...) {
+						// Stack scan failed, continue with just RIP
 					}
 
-					if (stackFramesPrinted == 0) {
-						a_log.critical("\t\tNo additional stack frames found"sv);
-					}
+					// Print detailed callstack with PDB symbols and assembly (shared DRY code)
+					print_callstack(a_log, frames, a_modules);
+
+				} catch (const std::exception& e) {
+					a_log.critical("\t\tCallstack error: {}"sv, e.what());
 				} catch (...) {
 					a_log.critical("\t\tStack walk may be incomplete due to access violations"sv);
 				}
@@ -213,35 +195,6 @@ namespace Crash
 		// Resume thread
 		ResumeThread(thread);
 		CloseHandle(thread);
-		a_log.critical(""sv);
-	}
-
-	// Common logging function for header information
-	void log_common_header_info(spdlog::logger& a_log, std::string_view title, std::string_view time_prefix)
-	{
-		// Add title header if provided
-		if (!title.empty()) {
-			a_log.critical("========================================"sv);
-			a_log.critical("{}"sv, title);
-			a_log.critical("========================================"sv);
-		}
-
-		// Add timestamp
-		const auto now = std::time(nullptr);
-		std::tm local_time{};
-		if (localtime_s(&local_time, &now) == 0) {
-			a_log.critical("{} {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv, time_prefix,
-				local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
-				local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
-		}
-
-		// Add version information
-		const auto runtimeVer = REL::Module::get().version();
-		a_log.critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
-
-		// Always include build time next to version
-		a_log.critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
-
 		a_log.critical(""sv);
 	}
 

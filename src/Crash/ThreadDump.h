@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Crash/CommonHeader.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include <filesystem>
 #include <memory>
@@ -31,6 +32,4 @@ namespace Crash
 	void StartHotkeyMonitoring();
 	void StopHotkeyMonitoring();
 
-	// Common logging function for header information
-	void log_common_header_info(spdlog::logger& a_log, std::string_view title, std::string_view time_prefix);
 }  // namespace Crash
