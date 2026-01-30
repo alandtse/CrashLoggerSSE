@@ -5,6 +5,8 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <DbgHelp.h>
 #include <magic_enum.hpp>
+#include <unordered_map>
+#include <atomic>
 
 namespace Crash::Introspection::SSE
 {
@@ -1553,6 +1555,9 @@ namespace Crash::Introspection
 
 	namespace detail
 	{
+		static std::unordered_map<const void*, std::size_t> seen_objects;
+		static std::atomic<std::size_t> introspection_counter{0};
+		static std::function<std::string(size_t)> label_generator;
 		class Integer
 		{
 		public:
@@ -1649,6 +1654,13 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
+				auto it = seen_objects.find(_ptr);
+				if (it != seen_objects.end()) {
+					return fmt::format("{} See 0x{:X}", _poly.name(), reinterpret_cast<std::uintptr_t>(_ptr));
+				}
+				auto id = introspection_counter.fetch_add(1);
+				seen_objects[_ptr] = id;
+
 				auto result = _poly.name();
 				SSE::filter_results xInfo;
 
@@ -1872,8 +1884,12 @@ namespace Crash::Introspection
 
 	std::vector<std::string> analyze_data(
 		std::span<const std::size_t> a_data,
-		std::span<const module_pointer> a_modules)
+		std::span<const module_pointer> a_modules,
+		std::function<std::string(size_t)> a_label_generator)
 	{
+		detail::seen_objects.clear();
+		detail::introspection_counter.store(0);
+		detail::label_generator = a_label_generator;
 		std::vector<std::string> results;
 		results.resize(a_data.size());
 		std::for_each(

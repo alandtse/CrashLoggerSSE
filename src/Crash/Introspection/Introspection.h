@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <string>
+
 namespace Crash
 {
 	namespace Modules
@@ -15,6 +18,7 @@ namespace Crash
 
 		[[nodiscard]] std::vector<std::string> analyze_data(
 			std::span<const std::size_t> a_data,
-			std::span<const std::unique_ptr<Modules::Module>> a_modules);
+			std::span<const std::unique_ptr<Modules::Module>> a_modules,
+			std::function<std::string(size_t)> a_label_generator = nullptr);
 	}
 }

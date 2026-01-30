@@ -666,7 +666,7 @@ namespace Crash
 			for (std::size_t i = 0; i < regs.size(); ++i) {
 				todo[i] = regs[i].second;
 			}
-			const auto analysis = Introspection::analyze_data(todo, a_modules);
+			const auto analysis = Introspection::analyze_data(todo, a_modules, [&](size_t i){ return std::string(regs[i].first); });
 			for (std::size_t i = 0; i < regs.size(); ++i) {
 				const auto& [name, reg] = regs[i];
 				a_log.critical("\t{:<3} 0x{:<16X} {}"sv, name, reg, analysis[i]);
@@ -695,7 +695,7 @@ namespace Crash
 				std::size_t idx = 0;
 				for (std::size_t off = 0; off < stack.size(); off += blockSize) {
 					const auto analysis = Introspection::analyze_data(
-						stack.subspan(off, std::min<std::size_t>(stack.size() - off, blockSize)), a_modules);
+						stack.subspan(off, std::min<std::size_t>(stack.size() - off, blockSize)), a_modules, [&](size_t i){ return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
 					for (std::size_t i = 0; i < analysis.size(); ++i) {
 						const auto& data = analysis[i];
 						a_log.critical(fmt::runtime(format), idx * sizeof(std::size_t), stack[idx], data);
@@ -1151,7 +1151,7 @@ namespace Crash
 				for (std::size_t i = 0; i < regs.size(); ++i) {
 					regValues[i] = regs[i].second;
 				}
-				const auto regAnalysis = Introspection::analyze_data(regValues, cmodules);
+				const auto regAnalysis = Introspection::analyze_data(regValues, cmodules, [&](size_t i){ return std::string(regs[i].first); });
 				for (std::size_t i = 0; i < regs.size(); ++i) {
 					relevantObjects.add(regs[i].second, regAnalysis[i], std::string(regs[i].first), 0);
 				}
@@ -1168,7 +1168,7 @@ namespace Crash
 					constexpr std::size_t blockSize = 256;
 					for (std::size_t off = 0; off < scanSize; off += blockSize) {
 						const auto analysis = Introspection::analyze_data(
-							stack.subspan(off, std::min<std::size_t>(scanSize - off, blockSize)), cmodules);
+							stack.subspan(off, std::min<std::size_t>(scanSize - off, blockSize)), cmodules, [&](size_t i){ return fmt::format("RSP+{:X}", (off + i) * sizeof(std::size_t)); });
 						for (std::size_t idx = 0; idx < analysis.size(); ++idx) {
 							const auto globalIdx = off + idx;
 							const auto distance = globalIdx * sizeof(std::size_t);
