@@ -25,6 +25,7 @@ configure_file(
 
 set(headers
         src/Settings.h
+        src/Crash/ThreadDump.h
 )
 
 set(sources
@@ -38,6 +39,8 @@ set(sources
         src/Crash/PDB/PdbHandler.h
         src/Crash/CrashHandler.cpp
         src/Crash/CrashHandler.h
+        src/Crash/ThreadDump.cpp
+        src/Crash/ThreadDump.h
         src/main.cpp
         src/Settings.cpp
         src/Settings.h

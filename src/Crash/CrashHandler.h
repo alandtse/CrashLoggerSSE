@@ -39,5 +39,4 @@ namespace Crash
 	};
 
 	void Install(std::string a_crashPath);
-	static std::string crashPath;
 }
