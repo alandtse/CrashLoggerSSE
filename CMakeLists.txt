@@ -30,6 +30,8 @@ set(headers
 set(sources
         src/Crash/Introspection/Introspection.cpp
         src/Crash/Introspection/Introspection.h
+        src/Crash/Introspection/RelevantObjectsSimplifier.cpp
+        src/Crash/Introspection/RelevantObjectsSimplifier.h
         src/Crash/Modules/ModuleHandler.cpp
         src/Crash/Modules/ModuleHandler.h
         src/Crash/PDB/PdbHandler.cpp
