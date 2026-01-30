@@ -57,7 +57,7 @@ jobs:
 
           if ($json -and $json.assets) {
             $assets = $json.assets | Select-Object -ExpandProperty name
-            
+
             if ($assets -contains "${{ env.FILENAME }}_$RELEASE_VERSION.7z") {
               echo "asset_exists=true" >> $env:GITHUB_ENV
             } else {
@@ -101,4 +101,3 @@ jobs:
       - name: Set output for new release status
         id: set_release_status
         run: echo "::set-output name=new_release::${{ steps.semantic.outputs.new_release_published }}"
-

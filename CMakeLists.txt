@@ -135,7 +135,7 @@ find_path(DIASDK_INCLUDE_DIR
 # VS 2017
 if(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
     if(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
-        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib 
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib
             HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 ${DIASDK_INCLUDE_DIR}/../lib)
     elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM")
         find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
@@ -144,7 +144,7 @@ if(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
     endif(CMAKE_GENERATOR MATCHES "Visual Studio.*Win64")
 else(CMAKE_GENERATOR MATCHES "Visual Studio 15 2017.*")
     if((CMAKE_GENERATOR_PLATFORM STREQUAL "x64") OR("${DXC_BUILD_ARCH}" STREQUAL "x64") OR(CMAKE_SIZEOF_VOID_P EQUAL 8))
-        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib 
+        find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib
             HINTS ${DIASDK_INCLUDE_DIR}/../lib/amd64 ${DIASDK_INCLUDE_DIR}/../lib)
     elseif((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM") OR("${DXC_BUILD_ARCH}" STREQUAL "ARM"))
         find_library(DIASDK_GUIDS_LIBRARY NAMES diaguids.lib HINTS ${DIASDK_INCLUDE_DIR}/../lib/arm)
