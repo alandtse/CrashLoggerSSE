@@ -4,9 +4,10 @@
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <DbgHelp.h>
+#include <SKSE/Logger.h>
+#include <atomic>
 #include <magic_enum.hpp>
 #include <unordered_map>
-#include <atomic>
 
 namespace Crash::Introspection::SSE
 {
@@ -1173,58 +1174,50 @@ namespace Crash::Introspection::SSE
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Overstressed", "", tab_depth),
-							fmt::format("{}", object->overstressed)
-						);
+							fmt::format("{}", object->overstressed));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Initialized", "", tab_depth),
-							fmt::format("{}", object->initialized)
-						);
+							fmt::format("{}", object->initialized));
 					} catch (...) {}
 
 					try {
 						const auto freezeState = object->freezeState;
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Freeze State", "", tab_depth),
-							fmt::format("{}", magic_enum::enum_name(freezeState.get()))
-						);
+							fmt::format("{}", magic_enum::enum_name(freezeState.get())));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Frozen Stacks Count", "", tab_depth),
-							fmt::format("{}", object->frozenStacksCount)
-						);
+							fmt::format("{}", object->frozenStacksCount));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Waiting Function Messages", "", tab_depth),
-							fmt::format("{}", object->uiWaitingFunctionMessages)
-						);
+							fmt::format("{}", object->uiWaitingFunctionMessages));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Object Table Size", "", tab_depth),
-							fmt::format("{}", object->objectTable.size())
-						);
+							fmt::format("{}", object->objectTable.size()));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Array Table Size", "", tab_depth),
-							fmt::format("{}", object->arrays.size())
-						);
+							fmt::format("{}", object->arrays.size()));
 					} catch (...) {}
 
 					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Running Stacks Count", "", tab_depth),
-							fmt::format("{}", object->allRunningStacks.size())
-						);
+							fmt::format("{}", object->allRunningStacks.size()));
 					} catch (...) {}
 				}
 			};
@@ -1611,9 +1604,10 @@ namespace Crash::Introspection
 
 	namespace detail
 	{
-		static std::unordered_map<const void*, std::size_t> seen_objects;
-		static std::atomic<std::size_t> introspection_counter{0};
+		static std::unordered_map<const void*, std::string> seen_objects;
 		static std::function<std::string(size_t)> label_generator;
+		static std::size_t total_backfill_count = 0;
+		static bool backfill_logged_this_crash = false;
 		class Integer
 		{
 		public:
@@ -1647,6 +1641,12 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
+				// Check if this address was already introspected as a known object
+				auto it = seen_objects.find(_ptr);
+				if (it != seen_objects.end()) {
+					return it->second;  // Return the full object information
+				}
+
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
 					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
@@ -1714,8 +1714,6 @@ namespace Crash::Introspection
 				if (it != seen_objects.end()) {
 					return fmt::format("{} See 0x{:X}", _poly.name(), reinterpret_cast<std::uintptr_t>(_ptr));
 				}
-				auto id = introspection_counter.fetch_add(1);
-				seen_objects[_ptr] = id;
 
 				auto result = _poly.name();
 				SSE::filter_results xInfo;
@@ -1752,6 +1750,9 @@ namespace Crash::Introspection
 							value);
 					}
 				}
+
+				// Store the complete result for backfilling void* references
+				seen_objects[_ptr] = result;
 
 				return result;
 			}
@@ -1945,8 +1946,10 @@ namespace Crash::Introspection
 		std::function<std::string(size_t)> a_label_generator)
 	{
 		detail::seen_objects.clear();
-		detail::introspection_counter.store(0);
 		detail::label_generator = a_label_generator;
+		// Reset backfill logging state for new crash
+		detail::backfill_logged_this_crash = false;
+		detail::total_backfill_count = 0;
 		std::vector<std::string> results;
 		results.resize(a_data.size());
 		std::for_each(
@@ -1961,5 +1964,32 @@ namespace Crash::Introspection
 					result);
 			});
 		return results;
+	}
+}
+
+void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_results, std::span<const std::size_t> a_addresses)
+{
+	assert(a_results.size() == a_addresses.size());
+
+	for (std::size_t i = 0; i < a_results.size(); ++i) {
+		auto& result = a_results[i];
+		std::size_t addr = a_addresses[i];
+
+		// Only process entries that are still void* pointers (not already replaced)
+		if (result.starts_with("(void*")) {
+			// Check if this address points to a known object
+			auto it = detail::seen_objects.find(reinterpret_cast<const void*>(addr));
+			if (it != detail::seen_objects.end()) {
+				// Replace with full object information
+				result = it->second;
+				++detail::total_backfill_count;
+			}
+		}
+	}
+
+	// Log the backfill statistics (only once per crash)
+	if (!detail::backfill_logged_this_crash && detail::total_backfill_count > 0) {
+		logger::info("Backfilled {} void* pointers with known object information across all analysis", detail::total_backfill_count);
+		detail::backfill_logged_this_crash = true;
 	}
 }
