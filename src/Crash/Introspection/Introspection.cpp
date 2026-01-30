@@ -1535,6 +1535,62 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+
+	class BSCullingProcess
+	{
+	public:
+		using value_type = RE::BSCullingProcess;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+
+			try {
+				const auto cullMode = object->cullMode.get();
+				const auto cullModeName = magic_enum::enum_name(cullMode);
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Cull Mode"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, cullModeName, std::to_underlying(cullMode)));
+			} catch (...) {}
+
+			try {
+				const auto objectCount = object->objectArray.size();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Object Array Size"sv, "", tab_depth),
+					fmt::format("{}"sv, objectCount));
+			} catch (...) {}
+
+			try {
+				const auto alphaGroupCount = object->alphaGroups.size();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Alpha Groups Size"sv, "", tab_depth),
+					fmt::format("{}"sv, alphaGroupCount));
+			} catch (...) {}
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Recurse to Geometry"sv, "", tab_depth),
+					fmt::format("{}"sv, object->recurseToGeometry));
+			} catch (...) {}
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Is Grouping Alphas"sv, "", tab_depth),
+					fmt::format("{}"sv, object->isGroupingAlphas));
+			} catch (...) {}
+
+			try {
+				const auto cullModeStackIndex = object->cullModeStackIndex;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Cull Mode Stack Index"sv, "", tab_depth),
+					fmt::format("{}"sv, cullModeStackIndex));
+			} catch (...) {}
+		}
+	};
 }
 
 namespace Crash::Introspection
@@ -1704,6 +1760,7 @@ namespace Crash::Introspection
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
+				std::make_pair(".?AVBSCullingProcess@@"sv, SSE::BSCullingProcess::filter),
 				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
 				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
