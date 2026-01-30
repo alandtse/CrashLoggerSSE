@@ -32,6 +32,30 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, symcache, section, "Symcache Directory", ";Local symbol cache directory.");
 	std::string crashDirectoryComment = std::format("; Crashlog output directory. If blank, defaults to \"Documents\\my games\\{}\\SKSE\\\"", !REL::Module::IsVR() ? "Skyrim Special Edition" : "Skyrim VR");
 	get_value(a_ini, crashDirectory, section, "Crashlog Directory", crashDirectoryComment.c_str());
+
+	// Thread dump hotkey settings
+	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks (0=disabled, no monitoring thread created).");
+
+	// Parse hotkey combination (comma-separated list of VK codes)
+	std::string hotkeyStr;
+	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Leave empty to disable monitoring thread.");
+	threadDumpHotkey.clear();
+	if (!hotkeyStr.empty()) {
+		std::istringstream iss(hotkeyStr);
+		std::string token;
+		while (std::getline(iss, token, ',')) {
+			// Trim whitespace
+			token.erase(0, token.find_first_not_of(" \t"));
+			token.erase(token.find_last_not_of(" \t") + 1);
+			if (!token.empty()) {
+				try {
+					threadDumpHotkey.push_back(std::stoi(token));
+				} catch (...) {
+					// Skip invalid values
+				}
+			}
+		}
+	}
 }
 
 const Settings::Debug& Settings::GetDebug() const

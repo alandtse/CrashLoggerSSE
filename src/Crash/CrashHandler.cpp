@@ -4,13 +4,16 @@
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
+#include "Crash/ThreadDump.h"
 #include "dxgi1_4.h"
 #include <Settings.h>
+#include <TlHelp32.h>
 #include <iomanip>
 #include <magic_enum.hpp>
 #include <openvr.h>
 #include <shellapi.h>
 #include <sstream>
+#include <thread>
 #include <vmaware.hpp>
 #include <wincrypt.h>
 #undef debug  // avoid conflict with vmaware.hpp debug
@@ -18,6 +21,8 @@ using namespace vr;
 
 namespace Crash
 {
+	std::filesystem::path crashPath;
+
 	class SEHException : public std::exception
 	{
 	public:
@@ -248,6 +253,34 @@ namespace Crash
 			SectionBuffer(std::string section_name) :
 				name(std::move(section_name)) {}
 		};
+
+		// Helper function to auto-open log files
+		void autoOpenLog(const std::filesystem::path& logPath)
+		{
+			if (!logPath.empty() && Settings::GetSingleton()->GetDebug().autoOpenCrashLog) {
+				// Ensure file exists before trying to open
+				if (std::filesystem::exists(logPath)) {
+					logger::info("Attempting to auto-open log: {}", logPath.string());
+					const std::wstring logPathW = logPath.wstring();
+					const auto result = ShellExecuteW(nullptr, L"open", logPathW.c_str(), nullptr, nullptr, SW_SHOW);
+					// ShellExecute returns a value <= 32 if it fails
+					if (reinterpret_cast<INT_PTR>(result) <= 32) {
+						logger::warn("Failed to auto-open log with default handler (error: {}), trying notepad fallback", static_cast<int>(reinterpret_cast<INT_PTR>(result)));
+						// Fallback: try opening with notepad explicitly
+						const auto fallbackResult = ShellExecuteW(nullptr, L"open", L"notepad.exe", logPathW.c_str(), nullptr, SW_SHOW);
+						if (reinterpret_cast<INT_PTR>(fallbackResult) <= 32) {
+							logger::error("Failed to auto-open log with notepad fallback (error: {})", static_cast<int>(reinterpret_cast<INT_PTR>(fallbackResult)));
+						} else {
+							logger::info("Successfully auto-opened log with notepad");
+						}
+					} else {
+						logger::info("Successfully auto-opened log with default handler");
+					}
+				} else {
+					logger::warn("Log file does not exist, cannot auto-open: {}", logPath.string());
+				}
+			}
+		}
 
 		[[nodiscard]] std::pair<std::shared_ptr<spdlog::logger>, std::filesystem::path> get_log()
 		{
@@ -1176,18 +1209,8 @@ namespace Crash
 					log->flush();
 				};
 
-				// Add timestamp
-				const auto now = std::time(nullptr);
-				std::tm local_time{};
-				if (localtime_s(&local_time, &now) == 0) {
-					log->critical("CRASH TIME: {:04}-{:02}-{:02} {:02}:{:02}:{:02}"sv,
-						local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
-						local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
-				}
-
-				const auto runtimeVer = REL::Module::get().version();
-				log->critical("Skyrim {} v{}.{}.{}"sv, REL::Module::IsVR() ? "VR" : "SSE", runtimeVer[0], runtimeVer[1], runtimeVer[2]);
-				log->critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
+				// Use common header logging function for crash info
+				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
@@ -1324,17 +1347,7 @@ namespace Crash
 			}
 
 			// Auto-open crash log if enabled
-			if (!crashLogPath.empty() && Settings::GetSingleton()->GetDebug().autoOpenCrashLog) {
-				// Ensure file exists before trying to open
-				if (std::filesystem::exists(crashLogPath)) {
-					const auto result = ShellExecuteW(nullptr, L"open", crashLogPath.wstring().c_str(), nullptr, nullptr, SW_SHOW);
-					// ShellExecute returns a value <= 32 if it fails
-					if (reinterpret_cast<INT_PTR>(result) <= 32) {
-						// Fallback: try opening with notepad explicitly
-						ShellExecuteW(nullptr, L"open", L"notepad.exe", crashLogPath.wstring().c_str(), nullptr, SW_SHOW);
-					}
-				}
-			}
+			autoOpenLog(crashLogPath);
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
 			return EXCEPTION_CONTINUE_SEARCH;
@@ -1351,8 +1364,8 @@ namespace Crash
 	{
 		// Set crash path first
 		if (!a_crashPath.empty()) {
-			crashPath = a_crashPath;
-			logger::info("Crash Logs will be written to {}", crashPath);
+			crashPath = std::filesystem::path(a_crashPath);
+			logger::info("Crash Logs will be written to {}", crashPath.string());
 		}
 
 		// Install crash handlers
@@ -1362,6 +1375,9 @@ namespace Crash
 			util::report_and_fail("failed to install vectored exception handler"sv);
 		}
 		logger::info("installed crash handlers"sv);
+
+		// Start hotkey monitoring thread
+		StartHotkeyMonitoring();
 
 // Verify handlers are working by testing (in debug builds only)
 #ifdef _DEBUG
