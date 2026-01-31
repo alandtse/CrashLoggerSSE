@@ -22,7 +22,23 @@ jobs:
         shell: pwsh
 
       - name: Refresh NexusUploader credentials
+        id: refresh
         run: unex refresh
         env:
           UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
+        shell: pwsh
+        continue-on-error: false
+
+      - name: Validate refreshed credentials
+        if: success()
+        run: unex check --session-cookie "$env:UNEX_SESSION_COOKIE"
+        env:
+          UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
+        shell: pwsh
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "::error::Failed to refresh NexusMods credentials. Please update UNEX_NEXUSMODS_SESSION_COOKIE secret manually."
+          echo "::error::Get new cookie from: https://www.nexusmods.com (F12 > Network > Copy 'nexusmods_session' cookie)"
         shell: pwsh
