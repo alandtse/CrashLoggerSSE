@@ -258,12 +258,9 @@ namespace Crash
 			{
 				// Only add if address is valid and we haven't seen it yet
 				if (address != 0 && objects.find(address) == objects.end()) {
-					// Check if this address was successfully introspected (polymorphic or pointer with module info)
-					// OR has detailed filter output (game object with properties)
-					const bool was_introspected = Introspection::was_introspected(reinterpret_cast<const void*>(address));
-					const bool has_filter_output = full_analysis.find("\n\t\t") != std::string::npos;
-					
-					if (was_introspected || has_filter_output) {
+					// Check if this address was successfully introspected
+					// (polymorphic objects, F4Polymorphic objects with or without filter output, or pointers with module info)
+					if (Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
 						objects[address] = { address, std::move(full_analysis), std::move(location), distance };
 					}
 				}
