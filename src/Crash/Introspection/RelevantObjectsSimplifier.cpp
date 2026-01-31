@@ -102,6 +102,7 @@ namespace Crash::Introspection
 		auto detail_pos = full_analysis.find("\n\t\t");
 		if (detail_pos == std::string_view::npos) {
 			// No filter output - return the analysis as-is (e.g., simple polymorphic pointers like "(NiCamera*)")
+			// This ensures that introspected objects without detailed properties are still displayed
 			return std::string(full_analysis);
 		}
 
