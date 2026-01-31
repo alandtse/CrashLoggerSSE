@@ -14,10 +14,12 @@ public:
 		bool autoOpenCrashLog{ true };
 		std::string symcache{ "" };
 		std::string crashDirectory{ "" };
+		bool crashLogWriteMinidump{ false };
 
 		// Thread dump hotkey settings
 		bool enableThreadDumpHotkey{ true };
 		std::vector<int> threadDumpHotkey{ VK_CONTROL, VK_SHIFT, VK_F12 };
+		bool threadDumpWriteMinidump{ false };
 	};
 
 	[[nodiscard]] static Settings* GetSingleton();

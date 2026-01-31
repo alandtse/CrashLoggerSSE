@@ -32,6 +32,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, symcache, section, "Symcache Directory", ";Local symbol cache directory.");
 	std::string crashDirectoryComment = std::format("; Crashlog output directory. If blank, defaults to \"Documents\\my games\\{}\\SKSE\\\"", !REL::Module::IsVR() ? "Skyrim Special Edition" : "Skyrim VR");
 	get_value(a_ini, crashDirectory, section, "Crashlog Directory", crashDirectoryComment.c_str());
+	get_value(a_ini, crashLogWriteMinidump, section, "Crash Log Write Minidump", ";Also create minidump file (.dmp) for crash log WinDbg analysis.");
 
 	// Thread dump hotkey settings
 	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks (0=disabled, no monitoring thread created).");
@@ -56,6 +57,8 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 			}
 		}
 	}
+
+	get_value(a_ini, threadDumpWriteMinidump, section, "Thread Dump Write Minidump", ";Also create minidump file (.dmp) for WinDbg analysis.");
 }
 
 const Settings::Debug& Settings::GetDebug() const

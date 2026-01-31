@@ -5,6 +5,7 @@
 #include <SKSE/SKSE.h>
 
 #include <ClibUtil/simpleINI.hpp>
+#include <DbgHelp.h>
 #include <Psapi.h>
 #include <ShlObj_core.h>
 #include <boost/stacktrace.hpp>
