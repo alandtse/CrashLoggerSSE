@@ -49,7 +49,7 @@
   ],
   "builtin-baseline": "9558037875497b9db8cf38fcd7db68ec661bffe7",
   "overrides": [
-    { "name": "fmt", "version": "10.2.1" },
+    { "name": "fmt", "version": "11.0.2" },
     { "name": "spdlog", "version": "1.15.0" }
   ]
 }

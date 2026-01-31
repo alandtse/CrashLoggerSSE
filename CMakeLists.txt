@@ -81,9 +81,14 @@ include(GNUInstallDirs)
 # #######################################################################################################################
 set(CommonLibPath "extern/CommonLibSSE-NG")
 set(CommonLibName "CommonLibSSE")
+# Save user's BUILD_TESTS preference
+set(_CRASHLOGGER_BUILD_TESTS ${BUILD_TESTS})
+# Disable tests for CommonLibSSE-NG dependency
 set(BUILD_TESTS OFF)
 add_subdirectory(${CommonLibPath} ${CommonLibName} EXCLUDE_FROM_ALL)
 include("${CommonLibPath}/cmake/CommonLibSSE.cmake")
+# Restore user's BUILD_TESTS preference
+set(BUILD_TESTS ${_CRASHLOGGER_BUILD_TESTS})
 find_package(Boost
         MODULE
         REQUIRED
@@ -285,7 +290,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInf
                 COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
 endif()
 
-file(GLOB_RECURSE CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Config/*.ini")
 file(GLOB_RECURSE OUTPUT_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.dll")
 file(GLOB_RECURSE OUTPUT_PDBS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pdb")
 file(GLOB_RECURSE OUTPUT_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pex")
@@ -323,12 +327,6 @@ message("Copying mod into ${ZIP_DIR}.")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${ZIP_DIR}/SKSE/Plugins/"
 )
-
-if(CONFIG_FILES)
-        message("Copying default config files ${CONFIG_FILES} into ${ZIP_DIR}.")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy ${CONFIG_FILES} "${ZIP_DIR}/SKSE/Plugins/")
-endif()
 
 if(DIASDK_LIBRARIES)
         message("Copying ${DIA_DLL} into ${ZIP_DIR}.")

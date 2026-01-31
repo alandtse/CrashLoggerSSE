@@ -77,7 +77,7 @@ namespace Crash
 		std::optional<std::filesystem::path> path = crashPath;
 		const auto time = std::time(nullptr);
 		std::tm localTime{};
-		if (gmtime_s(&localTime, &time) != 0) {
+		if (localtime_s(&localTime, &time) != 0) {
 			util::report_and_fail("failed to get current time"sv);
 		}
 
@@ -111,7 +111,13 @@ namespace Crash
 				return false;
 			}
 
-			memcpy(GlobalLock(hMem), text.c_str(), len);
+			void* locked = GlobalLock(hMem);
+			if (!locked) {
+				GlobalFree(hMem);
+				CloseClipboard();
+				return false;
+			}
+			memcpy(locked, text.c_str(), len);
 			GlobalUnlock(hMem);
 
 			SetClipboardData(CF_TEXT, hMem);
