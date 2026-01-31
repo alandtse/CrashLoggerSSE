@@ -47,9 +47,15 @@
   "default-features": [
     "plugin"
   ],
-  "builtin-baseline": "9558037875497b9db8cf38fcd7db68ec661bffe7",
+  "builtin-baseline": "7a6bb52bfd8eba088f8bf5cae70ca8d81503e42e",
   "overrides": [
-    { "name": "fmt", "version": "11.0.2" },
-    { "name": "spdlog", "version": "1.15.0" }
+    {
+      "name": "fmt",
+      "version": "11.0.2"
+    },
+    {
+      "name": "spdlog",
+      "version": "1.15.0"
+    }
   ]
 }

@@ -6,7 +6,7 @@
 #include <DbgHelp.h>
 #include <SKSE/Logger.h>
 #include <atomic>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <unordered_map>
 
 namespace Crash::Introspection::SSE

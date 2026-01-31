@@ -11,7 +11,7 @@
 #include <Settings.h>
 #include <TlHelp32.h>
 #include <iomanip>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <openvr.h>
 #include <shellapi.h>
 #include <sstream>
