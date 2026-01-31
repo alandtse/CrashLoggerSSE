@@ -12,6 +12,8 @@ public:
 		spdlog::level::level_enum flushLevel{ spdlog::level::level_enum::trace };
 		bool waitForDebugger{ false };
 		bool autoOpenCrashLog{ true };
+		bool autoUploadCrashLog{ false };
+		std::string pastebinApiKey{ "" };
 		std::string symcache{ "" };
 		std::string crashDirectory{ "" };
 		bool crashLogWriteMinidump{ false };
