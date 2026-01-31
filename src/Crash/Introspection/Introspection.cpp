@@ -468,6 +468,99 @@ namespace Crash::Introspection::SSE
 					TESObjectREFR::filter(a_results, objectRefr, tab_depth + 1);
 				}
 			} catch (...) {}
+			// Texture introspection for BSGeometry objects
+			try {
+				const auto geom = netimmerse_cast<RE::BSGeometry*>(object);
+				if (geom) {
+					const auto effect_ptr = geom->GetGeometryRuntimeData().properties[RE::BSGeometry::States::kEffect];
+					const auto effect = effect_ptr.get();
+					if (effect) {
+						// Check for lighting shader (most common)
+						const auto lighting_shader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect);
+						if (lighting_shader && lighting_shader->material) {
+							const auto base_material = lighting_shader->material;
+							const auto material = static_cast<RE::BSLightingShaderMaterialBase*>(static_cast<RE::BSShaderMaterial*>(base_material));
+							if (material) {
+								const auto texture_set_ptr = material->GetTextureSet();
+								const auto texture_set = texture_set_ptr.get();
+								if (texture_set) {
+									// Texture slot names
+									static constexpr std::array<std::string_view, 8> slot_names = {
+										"Diffuse", "Normal", "Glow", "Parallax",
+										"Cubemap", "EnvMask", "Subsurface", "BackLighting"
+									};
+
+									for (int i = 0; i < 8; i++) {
+										const char* tex_path = texture_set->GetTexturePath(static_cast<RE::BSTextureSet::Texture>(i));
+										if (tex_path && tex_path[0] != '\0') {
+											// Check if texture exists in BSA or loose files
+											bool exists = false;
+											try {
+												RE::BSResourceNiBinaryStream stream(tex_path);
+												exists = stream.good();
+											} catch (...) {
+												exists = false;
+											}
+
+											a_results.emplace_back(
+												fmt::format(
+													"{:\t>{}}Texture[{}]"sv,
+													"",
+													tab_depth,
+													slot_names[i]),
+												exists ? quoted(tex_path) : fmt::format("[MISSING] {}"sv, tex_path));
+										}
+									}
+								}
+							}
+						}
+
+						// Check for effect shader
+						const auto effect_shader = netimmerse_cast<RE::BSEffectShaderProperty*>(effect);
+						if (effect_shader && effect_shader->material) {
+							const auto material = static_cast<RE::BSEffectShaderMaterial*>(effect_shader->material);
+							if (material) {
+								// Source texture
+								const char* source_tex = material->sourceTexturePath.c_str();
+								if (source_tex && source_tex[0] != '\0') {
+									bool exists = false;
+									try {
+										RE::BSResourceNiBinaryStream stream(source_tex);
+										exists = stream.good();
+									} catch (...) {
+										exists = false;
+									}
+									a_results.emplace_back(
+										fmt::format(
+											"{:\t>{}}EffectTexture[Source]"sv,
+											"",
+											tab_depth),
+										exists ? quoted(source_tex) : fmt::format("[MISSING] {}"sv, source_tex));
+								}
+
+								// Greyscale texture
+								const char* grey_tex = material->greyscaleTexturePath.c_str();
+								if (grey_tex && grey_tex[0] != '\0') {
+									bool exists = false;
+									try {
+										RE::BSResourceNiBinaryStream stream(grey_tex);
+										exists = stream.good();
+									} catch (...) {
+										exists = false;
+									}
+									a_results.emplace_back(
+										fmt::format(
+											"{:\t>{}}EffectTexture[Greyscale]"sv,
+											"",
+											tab_depth),
+										exists ? quoted(grey_tex) : fmt::format("[MISSING] {}"sv, grey_tex));
+								}
+							}
+						}
+					}
+				}
+			} catch (...) {}
+
 			try {
 				const auto parent = object->parent;
 				const auto parentIndex = object->parentIndex;
