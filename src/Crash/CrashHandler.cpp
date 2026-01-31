@@ -258,8 +258,12 @@ namespace Crash
 			{
 				// Only add if address is valid and we haven't seen it yet
 				if (address != 0 && objects.find(address) == objects.end()) {
-					// Check if this analysis has filter output (detailed game object)
-					if (full_analysis.find("\n\t\t") != std::string::npos) {
+					// Check if this analysis has filter output (detailed game object) OR is a polymorphic pointer
+					// Polymorphic pointers are in the format "(TypeName*)" which are relevant for crash analysis
+					const bool has_filter_output = full_analysis.find("\n\t\t") != std::string::npos;
+					const bool is_polymorphic = full_analysis.starts_with("(") && full_analysis.ends_with("*)");
+					
+					if (has_filter_output || is_polymorphic) {
 						objects[address] = { address, std::move(full_analysis), std::move(location), distance };
 					}
 				}

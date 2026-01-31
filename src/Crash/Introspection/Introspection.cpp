@@ -1882,25 +1882,34 @@ namespace Crash::Introspection
 					return it->second;  // Return the full object information
 				}
 
+				std::string result;
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
 					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
 					const auto assembly = _module->assembly((const void*)address);
 					if (!pdbDetails.empty())
-						return fmt::format(
+						result = fmt::format(
 							"(void* -> {}+{:07X}\t{} | {})"sv,
 							_module->name(),
 							address - _module->address(),
 							assembly,
 							pdbDetails);
-					return fmt::format(
-						"(void* -> {}+{:07X}\t{})"sv,
-						_module->name(),
-						address - _module->address(),
-						assembly);
+					else
+						result = fmt::format(
+							"(void* -> {}+{:07X}\t{})"sv,
+							_module->name(),
+							address - _module->address(),
+							assembly);
 				} else {
-					return "(void*)"s;
+					result = "(void*)"s;
 				}
+				
+				// Store in seen_objects to prevent duplicate introspection
+				if (_ptr && _module) {
+					seen_objects[_ptr] = result;
+				}
+				
+				return result;
 			}
 
 		private:
@@ -1911,8 +1920,9 @@ namespace Crash::Introspection
 		class Polymorphic
 		{
 		public:
-			explicit Polymorphic(std::string_view a_mangled) noexcept :
-				_mangled{ a_mangled }
+			explicit Polymorphic(std::string_view a_mangled, const void* a_ptr = nullptr) noexcept :
+				_mangled{ a_mangled },
+				_ptr{ a_ptr }
 			{
 				// NOLINTNEXTLINE(readability-simplify-subscript-expr)
 				assert(_mangled.size() > 1 && _mangled.data()[_mangled.size()] == '\0');
@@ -1920,12 +1930,28 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
+				// Check if this address was already introspected
+				if (_ptr) {
+					auto it = seen_objects.find(_ptr);
+					if (it != seen_objects.end()) {
+						return fmt::format("{} See 0x{:X}", it->second, reinterpret_cast<std::uintptr_t>(_ptr));
+					}
+				}
+				
 				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
-				return fmt::format("({}*)"sv, demangled);
+				auto result = fmt::format("({}*)"sv, demangled);
+				
+				// Store in seen_objects to prevent duplicate introspection
+				if (_ptr) {
+					seen_objects[_ptr] = result;
+				}
+				
+				return result;
 			}
 
 		private:
 			std::string_view _mangled;
+			const void* _ptr{ nullptr };
 		};
 
 		class F4Polymorphic
@@ -2102,7 +2128,7 @@ namespace Crash::Introspection
 				if (_stricmp(mod->name().data(), util::module_name().c_str()) == 0) {
 					return make_result<F4Polymorphic>(typeDesc->mangled_name(), col, a_ptr);
 				} else {
-					return make_result<Polymorphic>(typeDesc->mangled_name());
+					return make_result<Polymorphic>(typeDesc->mangled_name(), a_ptr);
 				}
 			} catch (...) {
 				return std::nullopt;
