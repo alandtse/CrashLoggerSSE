@@ -3,7 +3,8 @@ name: Refresh NexusMods Credentials
 
 on:
   schedule:
-    - cron: "0 0 */10 * *"
+    # Run every 5 days instead of 10 (cookies expire after ~7 days, need safety margin)
+    - cron: "0 0 */5 * *"
   workflow_dispatch:
 
 env:

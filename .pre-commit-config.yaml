@@ -1,3 +1,16 @@
+# pre-commit.ci config
+ci:
+  autofix_commit_msg: |
+    style: auto fixes from pre-commit hooks
+
+    Applied by pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: 'ci(deps): update pre-commit hooks'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
+
 repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v16.0.6

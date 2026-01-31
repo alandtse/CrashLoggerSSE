@@ -10,7 +10,12 @@
 #   described by the vcpkg.json manifest file. It will be a no-op if those are restored from cache.
 # - Finally builds the sources with Ninja.
 name: Semantic Release and Build
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches:
+      - main  # Only release from main branch
+  pull_request:  # Build on PRs for testing (no release)
+  workflow_dispatch:
 
 jobs:
   job:
@@ -20,16 +25,24 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest]
-        include:
-          - os: windows-latest
-            vcpkgCommitId: "9558037875497b9db8cf38fcd7db68ec661bffe7"
     if: github.repository_owner == 'alandtse'
 
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: "true"
+
+      - name: Extract vcpkg baseline from vcpkg.json
+        id: vcpkg_baseline
+        shell: pwsh
+        run: |
+          $vcpkgJson = Get-Content vcpkg.json | ConvertFrom-Json
+          $baseline = $vcpkgJson.'builtin-baseline'
+          echo "baseline=$baseline" >> $env:GITHUB_OUTPUT
+          echo "✓ Using vcpkg baseline from vcpkg.json: $baseline"
+
       - uses: lukka/get-cmake@latest
+
       - name: Restore artifacts, or setup vcpkg (do not install any package)
         uses: lukka/run-vcpkg@v10
         id: runvcpkg
@@ -37,7 +50,7 @@ jobs:
           # This specifies the location of vcpkg, where it is going to be restored from cache, or create from scratch.
           vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
           # The Git commit id of vcpkg to be checked out. This is only needed because we are not using a submodule.
-          vcpkgGitCommitId: "${{ matrix.vcpkgCommitId}}"
+          vcpkgGitCommitId: "${{ steps.vcpkg_baseline.outputs.baseline }}"
           # The vcpkg.json file, which will be part of cache key computation.
           vcpkgJsonGlob: "/vcpkg.json"
 
@@ -82,7 +95,7 @@ jobs:
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: 6.x.x
+          dotnet-version: 8.x.x
       - name: Download NexusUploader
         if: steps.semantic.outputs.new_release_published == 'true'
         run: dotnet tool install -g BUTR.NexusUploader
@@ -90,10 +103,11 @@ jobs:
         # https://github.com/agc93/nexus-uploader using fork https://github.com/BUTR/BUTR.NexusUploader
         if: steps.semantic.outputs.new_release_published == 'true'
         env:
-          UNEX_SESSION_COOKIE: ${{ secrets.NEXUSMODS_SESSION_COOKIE }}
+          UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
           UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
           UNEX_GAME: skyrimspecialedition
           UNEX_MODID: 59818
+          UNEX_DEBUG: true
           UNEX_FILENAME: CrashLogger
           UNEX_FILEDESCRIPTION: |-
             See Description -> Requirements for installation instructions.
