@@ -1882,11 +1882,11 @@ namespace Crash::Introspection
 					return it->second;  // Return the full object information
 				}
 
-				std::string result;
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
 					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
 					const auto assembly = _module->assembly((const void*)address);
+					std::string result;
 					if (!pdbDetails.empty())
 						result = fmt::format(
 							"(void* -> {}+{:07X}\t{} | {})"sv,
@@ -1903,11 +1903,10 @@ namespace Crash::Introspection
 					
 					// Store in seen_objects to prevent duplicate introspection
 					seen_objects[_ptr] = result;
+					return result;
 				} else {
-					result = "(void*)"s;
+					return "(void*)"s;
 				}
-				
-				return result;
 			}
 
 		private:
