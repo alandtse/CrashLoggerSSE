@@ -101,8 +101,7 @@ namespace Crash::Introspection
 		// Check if this is a simple polymorphic pointer (e.g., "(NiCamera*)")
 		// These don't have filter output but are still relevant for crash analysis
 		if (full_analysis.starts_with("(") && full_analysis.ends_with("*)")) {
-			auto detail_pos = full_analysis.find("\n\t\t");
-			if (detail_pos == std::string_view::npos) {
+			if (full_analysis.find("\n\t\t") == std::string_view::npos) {
 				// Simple polymorphic pointer without filter output - return as-is
 				return std::string(full_analysis);
 			}

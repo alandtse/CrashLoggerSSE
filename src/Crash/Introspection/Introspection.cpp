@@ -1900,13 +1900,11 @@ namespace Crash::Introspection
 							_module->name(),
 							address - _module->address(),
 							assembly);
+					
+					// Store in seen_objects to prevent duplicate introspection
+					seen_objects[_ptr] = result;
 				} else {
 					result = "(void*)"s;
-				}
-				
-				// Store in seen_objects to prevent duplicate introspection
-				if (_ptr && _module) {
-					seen_objects[_ptr] = result;
 				}
 				
 				return result;
@@ -1934,7 +1932,7 @@ namespace Crash::Introspection
 				if (_ptr) {
 					auto it = seen_objects.find(_ptr);
 					if (it != seen_objects.end()) {
-						return fmt::format("{} See 0x{:X}", it->second, reinterpret_cast<std::uintptr_t>(_ptr));
+						return fmt::format("See 0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
 					}
 				}
 				
