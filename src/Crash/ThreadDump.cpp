@@ -25,28 +25,6 @@ namespace Crash
 	static std::atomic<bool> g_stopHotkeyThread{ false };
 	static std::jthread g_hotkeyThread;
 
-	[[nodiscard]] std::pair<std::shared_ptr<spdlog::logger>, std::filesystem::path> get_thread_dump_log()
-	{
-		std::optional<std::filesystem::path> path = crashPath;
-		const auto time = std::time(nullptr);
-		std::tm localTime{};
-		if (gmtime_s(&localTime, &time) != 0) {
-			util::report_and_fail("failed to get current time"sv);
-		}
-
-		std::stringstream buf;
-		buf << "threaddump-"sv << std::put_time(&localTime, "%Y-%m-%d-%H-%M-%S") << ".log"sv;
-		*path /= buf.str();
-
-		auto sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(path->string(), true);
-		auto log = std::make_shared<spdlog::logger>("thread dump"s, std::move(sink));
-		log->set_pattern("%v"s);
-		log->set_level(spdlog::level::trace);
-		log->flush_on(spdlog::level::off);
-
-		return { log, *path };
-	}
-
 	std::optional<ThreadData> CollectThreadData(DWORD threadId, size_t index,
 		std::span<const module_pointer> a_modules, const std::string& processName, const std::filesystem::path& pluginDir)
 	{
@@ -202,7 +180,7 @@ namespace Crash
 	{
 		try {
 			// Create log file
-			auto [log, logPath] = get_thread_dump_log();
+			auto [log, logPath] = get_timestamped_log("threaddump-"sv, "thread dump"s);
 
 			log_common_header_info(*log, "THREAD DUMP (Manual Trigger)", "TIME:"sv);
 
@@ -282,47 +260,46 @@ namespace Crash
 			log->critical(""sv);
 
 			log->flush();
+
+			// Write minidump if requested
+			bool minidumpWritten = false;
+			if (Settings::GetSingleton()->GetDebug().threadDumpWriteMinidump) {
+				try {
+					auto dumpPath = logPath;
+					dumpPath.replace_extension(".dmp");
+					if (write_minidump(dumpPath)) {
+						log->critical("Minidump written to: {}", dumpPath.string());
+						log->flush();
+						minidumpWritten = true;
+					} else {
+						log->critical("Failed to write minidump to: {}", dumpPath.string());
+						log->flush();
+					}
+				} catch (...) {
+					log->critical("Exception while writing minidump");
+					log->flush();
+				}
+			}
+
 			std::string message{ "Thread dump written to: " };
 			message.append(logPath.string());
+			if (minidumpWritten) {
+				message.append("\nMinidump: ");
+				auto dumpPath = logPath;
+				dumpPath.replace_extension(".dmp");
+				message.append(dumpPath.string());
+			}
 			RE::DebugMessageBox(message.c_str());
 			RE::ConsoleLog::GetSingleton()->Print(message.c_str());
 			logger::info("{}", message);
 
 			// Auto-open thread dump log if enabled
-			autoOpenLog(logPath);
+			auto_open_log(logPath);
 
 		} catch (const std::exception& e) {
 			logger::error("Failed to write thread dump: {}"sv, e.what());
 		} catch (...) {
 			logger::error("Failed to write thread dump: unknown error"sv);
-		}
-	}
-
-	// Helper function to auto-open log files
-	void autoOpenLog(const std::filesystem::path& logPath)
-	{
-		if (!logPath.empty() && Settings::GetSingleton()->GetDebug().autoOpenCrashLog) {
-			// Ensure file exists before trying to open
-			if (std::filesystem::exists(logPath)) {
-				logger::info("Attempting to auto-open log: {}", logPath.string());
-				const std::wstring logPathW = logPath.wstring();
-				const auto result = ShellExecuteW(nullptr, L"open", logPathW.c_str(), nullptr, nullptr, SW_SHOW);
-				// ShellExecute returns a value <= 32 if it fails
-				if (reinterpret_cast<INT_PTR>(result) <= 32) {
-					logger::warn("Failed to auto-open log with default handler (error: {0}), trying notepad fallback", static_cast<int>(reinterpret_cast<INT_PTR>(result)));
-					// Fallback: try opening with notepad explicitly
-					const auto fallbackResult = ShellExecuteW(nullptr, L"open", L"notepad.exe", logPathW.c_str(), nullptr, SW_SHOW);
-					if (reinterpret_cast<INT_PTR>(fallbackResult) <= 32) {
-						logger::error("Failed to auto-open log with notepad fallback (error: {0})", static_cast<int>(reinterpret_cast<INT_PTR>(fallbackResult)));
-					} else {
-						logger::info("Successfully auto-opened log with notepad");
-					}
-				} else {
-					logger::info("Successfully auto-opened log with default handler");
-				}
-			} else {
-				logger::warn("Log file does not exist, cannot auto-open: {}", logPath.string());
-			}
 		}
 	}
 

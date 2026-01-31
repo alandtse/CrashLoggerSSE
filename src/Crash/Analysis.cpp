@@ -313,4 +313,61 @@ namespace Crash
 		print_callstack_impl(a_log, frame_data, "\t"sv);
 	}
 
+	// Minidump generation (shared between crash logs and thread dumps)
+
+	bool write_minidump(
+		const std::filesystem::path& a_path,
+		::EXCEPTION_POINTERS* a_exception,
+		::HANDLE a_thread)
+	{
+		try {
+			// Create minidump file
+			const auto file = ::CreateFileW(
+				a_path.c_str(),
+				GENERIC_WRITE,
+				0,
+				nullptr,
+				CREATE_ALWAYS,
+				FILE_ATTRIBUTE_NORMAL,
+				nullptr);
+
+			if (file == INVALID_HANDLE_VALUE) {
+				return false;
+			}
+
+			// Prepare minidump info
+			::MINIDUMP_EXCEPTION_INFORMATION exceptionInfo{};
+			::MINIDUMP_EXCEPTION_INFORMATION* exceptionPtr = nullptr;
+
+			if (a_exception) {
+				exceptionInfo.ThreadId = ::GetCurrentThreadId();
+				exceptionInfo.ExceptionPointers = a_exception;
+				exceptionInfo.ClientPointers = FALSE;
+				exceptionPtr = &exceptionInfo;
+			}
+
+			// Write minidump with full memory
+			const auto dumpType = static_cast<::MINIDUMP_TYPE>(
+				MiniDumpWithFullMemory |
+				MiniDumpWithHandleData |
+				MiniDumpWithThreadInfo |
+				MiniDumpWithUnloadedModules);
+
+			const auto result = ::MiniDumpWriteDump(
+				::GetCurrentProcess(),
+				::GetCurrentProcessId(),
+				file,
+				dumpType,
+				exceptionPtr,
+				nullptr,
+				nullptr);
+
+			::CloseHandle(file);
+			return result != 0;
+
+		} catch (...) {
+			return false;
+		}
+	}
+
 }  // namespace Crash

@@ -108,4 +108,13 @@ namespace Crash
 		std::span<const void* const> a_frames,
 		std::span<const module_pointer> a_modules);
 
+	// Minidump generation (shared between crash logs and thread dumps)
+
+	// Write a minidump file for WinDbg analysis
+	// Returns true on success, false on failure
+	[[nodiscard]] bool write_minidump(
+		const std::filesystem::path& a_path,
+		::EXCEPTION_POINTERS* a_exception = nullptr,
+		::HANDLE a_thread = nullptr);
+
 }  // namespace Crash
