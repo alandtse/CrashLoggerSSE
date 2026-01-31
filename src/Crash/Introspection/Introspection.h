@@ -23,5 +23,8 @@ namespace Crash
 
 		// Backfill void* entries in analysis results with known object information
 		void backfill_void_pointers(std::vector<std::string>& a_results, std::span<const std::size_t> a_addresses);
+
+		// Check if an address was successfully introspected (polymorphic or pointer with module info)
+		[[nodiscard]] bool was_introspected(const void* a_ptr) noexcept;
 	}
 }

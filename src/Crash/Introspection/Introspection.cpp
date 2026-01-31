@@ -2255,3 +2255,8 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 		detail::backfill_logged_this_crash = true;
 	}
 }
+
+bool Crash::Introspection::was_introspected(const void* a_ptr) noexcept
+{
+	return detail::seen_objects.find(a_ptr) != detail::seen_objects.end();
+}

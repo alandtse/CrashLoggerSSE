@@ -98,19 +98,11 @@ namespace Crash::Introspection
 
 	std::string simplify_for_relevant_objects(std::string_view full_analysis)
 	{
-		// Check if this is a simple polymorphic pointer (e.g., "(NiCamera*)")
-		// These don't have filter output but are still relevant for crash analysis
-		if (full_analysis.starts_with("(") && full_analysis.ends_with("*)")) {
-			if (full_analysis.find("\n\t\t") == std::string_view::npos) {
-				// Simple polymorphic pointer without filter output - return as-is
-				return std::string(full_analysis);
-			}
-		}
-		
-		// Check if this has filter output
+		// Check if this has filter output (detailed game object)
 		auto detail_pos = full_analysis.find("\n\t\t");
 		if (detail_pos == std::string_view::npos) {
-			return "";
+			// No filter output - return the analysis as-is (e.g., simple polymorphic pointers like "(NiCamera*)")
+			return std::string(full_analysis);
 		}
 
 		// Extract type name
