@@ -248,6 +248,7 @@ target_link_libraries(${PROJECT_NAME}
         PRIVATE
         Boost::stacktrace_windbg
         Dbghelp.lib
+        Winhttp.lib
         advapi32.lib
         frozen::frozen
         infoware

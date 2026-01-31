@@ -1167,8 +1167,26 @@ namespace Crash
 				log->flush();
 			}
 
-			// Auto-open crash log if enabled
-			auto_open_log(crashLogPath);
+			// Upload crash log to pastebin if enabled
+			bool uploadedToWeb = false;
+			if (Settings::GetSingleton()->GetDebug().autoUploadCrashLog) {
+				try {
+					const auto pasteUrl = upload_log_to_pastebin(crashLogPath);
+					if (!pasteUrl.empty()) {
+						RE::DebugMessageBox(fmt::format("Crash log uploaded to pastebin.com!\n\nURL: {}\n\n(URL copied to clipboard and opened in browser)", pasteUrl).c_str());
+						uploadedToWeb = true;
+					} else {
+						RE::DebugMessageBox("Failed to upload crash log to pastebin.\nCheck that you have a valid Pastebin API Key in CrashLogger.ini\n\nGet a free key from: https://pastebin.com/doc_api#1");
+					}
+				} catch (...) {
+					logger::error("Failed to upload crash log");
+				}
+			}
+
+			// Auto-open crash log if enabled (skip if uploaded to web to avoid focus stealing)
+			if (!uploadedToWeb) {
+				auto_open_log(crashLogPath);
+			}
 
 			TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
 			return EXCEPTION_CONTINUE_SEARCH;

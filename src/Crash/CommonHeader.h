@@ -17,4 +17,11 @@ namespace Crash
 		std::string_view a_prefix,
 		std::string_view a_logger_name);
 
+	// Upload log file to pastebin.com, copy URL to clipboard, and open in browser
+	// Returns the paste URL if successful, empty string otherwise
+	[[nodiscard]] std::string upload_log_to_pastebin(const std::filesystem::path& logPath);
+
+	// Copy text to Windows clipboard
+	bool copy_to_clipboard(const std::string& text);
+
 }  // namespace Crash
