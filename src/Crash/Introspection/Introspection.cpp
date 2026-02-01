@@ -1929,19 +1929,18 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
+				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
+				auto result = fmt::format("({}*)"sv, demangled);
+
 				// Check if this address was already introspected
 				if (_ptr) {
 					auto it = seen_objects.find(_ptr);
 					if (it != seen_objects.end()) {
-						return fmt::format("See 0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						// Include type info in the cross-reference
+						return fmt::format("{} See 0x{:X}", result, reinterpret_cast<std::uintptr_t>(_ptr));
 					}
-				}
 
-				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
-				auto result = fmt::format("({}*)"sv, demangled);
-
-				// Store in seen_objects to prevent duplicate introspection
-				if (_ptr) {
+					// Store type info in seen_objects for future references
 					seen_objects[_ptr] = result;
 				}
 
