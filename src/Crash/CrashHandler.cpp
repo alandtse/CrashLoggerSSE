@@ -256,14 +256,25 @@ namespace Crash
 
 			void add(std::size_t address, std::string full_analysis, std::string location, std::size_t distance)
 			{
-				// Only add if address is valid and we haven't seen it yet
-				if (address != 0 && objects.find(address) == objects.end()) {
-					// Check if this address was successfully introspected
-					// (polymorphic objects, F4Polymorphic objects with or without filter output, or pointers with module info)
-					if (Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
-						objects[address] = { address, std::move(full_analysis), std::move(location), distance };
-					}
+				if (address == 0) {
+					return;
 				}
+
+				// Check if this address has game introspection data
+				if (!Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
+					return;
+				}
+
+				// Keep the closest occurrence (smallest distance) for each unique address
+				auto it = objects.find(address);
+				if (it == objects.end()) {
+					// First time seeing this address
+					objects[address] = { address, std::move(full_analysis), std::move(location), distance };
+				} else if (distance < it->second.distance) {
+					// Found a closer occurrence, replace it
+					it->second = { address, std::move(full_analysis), std::move(location), distance };
+				}
+				// Otherwise, keep the existing closer occurrence
 			}
 
 			std::vector<RelevantObject> get_sorted() const

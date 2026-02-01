@@ -8,6 +8,7 @@
 #include <atomic>
 #include <magic_enum/magic_enum.hpp>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "RE/M/Main.h"
 #include "RE/S/ShadowSceneNode.h"
@@ -1840,6 +1841,7 @@ namespace Crash::Introspection
 	namespace detail
 	{
 		static std::unordered_map<const void*, std::string> seen_objects;
+		static std::unordered_set<const void*> objects_with_filter_output;
 		static std::function<std::string(size_t)> label_generator;
 		static std::size_t total_backfill_count = 0;
 		static bool backfill_logged_this_crash = false;
@@ -1900,7 +1902,7 @@ namespace Crash::Introspection
 							_module->name(),
 							address - _module->address(),
 							assembly);
-					
+
 					// Store in seen_objects to prevent duplicate introspection
 					seen_objects[_ptr] = result;
 					return result;
@@ -1934,15 +1936,15 @@ namespace Crash::Introspection
 						return fmt::format("See 0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
 					}
 				}
-				
+
 				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
 				auto result = fmt::format("({}*)"sv, demangled);
-				
+
 				// Store in seen_objects to prevent duplicate introspection
 				if (_ptr) {
 					seen_objects[_ptr] = result;
 				}
-				
+
 				return result;
 			}
 
@@ -2007,6 +2009,8 @@ namespace Crash::Introspection
 							key,
 							value);
 					}
+					// Mark this object as having filter output
+					objects_with_filter_output.insert(_ptr);
 				}
 
 				// Store the complete result for backfilling void* references
@@ -2207,6 +2211,7 @@ namespace Crash::Introspection
 		std::function<std::string(size_t)> a_label_generator)
 	{
 		detail::seen_objects.clear();
+		detail::objects_with_filter_output.clear();
 		detail::label_generator = a_label_generator;
 		// Reset backfill logging state for new crash
 		detail::backfill_logged_this_crash = false;
@@ -2257,5 +2262,7 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 
 bool Crash::Introspection::was_introspected(const void* a_ptr) noexcept
 {
-	return detail::seen_objects.find(a_ptr) != detail::seen_objects.end();
+	// Only return true if the object has filter output (game introspection data)
+	// This excludes module pointers which only have PDB symbols but no game data
+	return detail::objects_with_filter_output.find(a_ptr) != detail::objects_with_filter_output.end();
 }
