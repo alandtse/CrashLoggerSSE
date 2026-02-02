@@ -36,8 +36,6 @@ namespace Crash
 
 		// Always include build time next to version
 		a_log.critical("CrashLoggerSSE v{} {} {}"sv, SKSE::PluginDeclaration::GetSingleton()->GetVersion().string(), __DATE__, __TIME__);
-
-		a_log.critical(""sv);
 	}
 
 	// Auto-open log file with default text viewer
