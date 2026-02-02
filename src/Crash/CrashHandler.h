@@ -23,6 +23,11 @@ namespace Crash
 			spdlog::logger& a_log,
 			std::span<const std::unique_ptr<Modules::Module>> a_modules) const;
 
+		// Get the throw location for C++ exceptions (frame after KERNELBASE/VCRUNTIME)
+		// Returns empty string if not found
+		[[nodiscard]] std::string get_throw_location(
+			std::span<const std::unique_ptr<Modules::Module>> a_modules) const;
+
 	private:
 		[[nodiscard]] static std::string get_size_string(std::size_t a_size);
 

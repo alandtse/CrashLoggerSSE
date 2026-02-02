@@ -2,6 +2,7 @@
 
 #include "Crash/Analysis.h"
 #include "Crash/CommonHeader.h"
+#include "Crash/CppException.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
@@ -117,6 +118,54 @@ namespace Crash
 	void Callstack::print(spdlog::logger& a_log, std::span<const module_pointer> a_modules) const
 	{
 		print_probable_callstack(a_log, a_modules);
+	}
+
+	std::string Callstack::get_throw_location(std::span<const module_pointer> a_modules) const
+	{
+		// For C++ exceptions, the throw site is typically:
+		// frame[0] = KERNELBASE.dll (RaiseException)
+		// frame[1] = VCRUNTIME140.dll (_CxxThrowException)
+		// frame[2] = actual throw site (or ThrowIfFailed wrapper)
+		// We scan for the first non-system frame
+
+		if (_frames.size() < 3) {
+			return "";
+		}
+
+		try {
+			for (std::size_t i = 0; i < std::min(_frames.size(), std::size_t(10)); ++i) {
+				const auto& frame = _frames[i];
+				const auto addr = frame.address();
+				const auto mod = Introspection::get_module_for_pointer(addr, a_modules);
+
+				if (mod) {
+					const auto modName = mod->name();
+					// Skip system frames
+					if (modName.find("KERNELBASE") != std::string::npos ||
+						modName.find("VCRUNTIME") != std::string::npos ||
+						modName.find("ntdll") != std::string::npos ||
+						modName.find("KERNEL32") != std::string::npos ||
+						modName.find("ucrtbase") != std::string::npos) {
+						continue;
+					}
+
+					// Found the throw site - get detailed info
+					const auto frameAddr = reinterpret_cast<std::uintptr_t>(addr);
+					const auto pdbDetails = Crash::PDB::pdb_details(mod->path(), frameAddr - mod->address());
+
+					if (!pdbDetails.empty()) {
+						return pdbDetails;
+					} else {
+						// No PDB, return module+offset
+						return fmt::format("{}+{:07X}", mod->name(), frameAddr - mod->address());
+					}
+				}
+			}
+		} catch (...) {
+			// Ignore errors
+		}
+
+		return "";
 	}
 
 	std::string Callstack::get_size_string(std::size_t a_size)
@@ -326,12 +375,15 @@ namespace Crash
 			}
 		}
 
-		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules)
+		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules, const std::string& a_throwLocation = "")
 		{
 #define EXCEPTION_CASE(a_code) \
 	case a_code:               \
 		return " \"" #a_code "\""sv
 
+			// For C++ exceptions, the ExceptionAddress points to RaiseException in KERNELBASE.dll
+			// The actual throw site is in Parameter[3] (module base)
+			// We'll display both for clarity
 			const auto eptr = a_exception.ExceptionAddress;
 			const auto eaddr = reinterpret_cast<std::uintptr_t>(a_exception.ExceptionAddress);
 
@@ -375,6 +427,8 @@ namespace Crash
 					EXCEPTION_CASE(EXCEPTION_PRIV_INSTRUCTION);
 					EXCEPTION_CASE(EXCEPTION_SINGLE_STEP);
 					EXCEPTION_CASE(EXCEPTION_STACK_OVERFLOW);
+				case CPP_EXCEPTION_CODE:
+					return " \"C++ Exception\""sv;
 				default:
 					return ""sv;
 				}
@@ -411,6 +465,43 @@ namespace Crash
 				const auto faultAddress = a_exception.ExceptionInformation[1];
 				const auto ntStatus = a_exception.ExceptionInformation[2];
 				a_log.critical("In-Page Error: Tried to {} memory at 0x{:012X}, NTSTATUS: 0x{:08X}"sv, accessType, faultAddress, ntStatus);
+			} else if (IsCppException(a_exception)) {
+				// Parse and display C++ exception details
+				if (const auto cppExInfo = ParseCppException(a_exception)) {
+					a_log.critical("");
+					a_log.critical("C++ EXCEPTION:");
+
+					// Use existing introspection system to analyze the exception object
+					const std::size_t addresses[] = { cppExInfo->objectAddress };
+					const auto analysis = Introspection::analyze_data(addresses, a_modules);
+
+					if (!analysis.empty() && !analysis[0].empty()) {
+						// The introspection system provides full type information with details
+						a_log.critical("\tType: {}"sv, analysis[0]);
+					} else {
+						// Fallback to our manual parsing if introspection fails
+						a_log.critical("\tType: {}"sv, cppExInfo->typeName);
+					}
+
+					// Always try to extract additional info from the exception object (e.g., HRESULT)
+					if (cppExInfo->what) {
+						a_log.critical("\tInfo: {}"sv, *cppExInfo->what);
+					}
+
+					// Show the throw location if available (extracted from callstack)
+					if (!a_throwLocation.empty()) {
+						a_log.critical("\tThrow Location: {}"sv, a_throwLocation);
+					}
+
+					// Log module information
+					const auto modulePtr = reinterpret_cast<const void*>(cppExInfo->moduleBase);
+					const auto mod = Introspection::get_module_for_pointer(modulePtr, a_modules);
+					if (mod) {
+						a_log.critical("\tModule: {}"sv, mod->name());
+					}
+				} else {
+					a_log.critical("C++ Exception: Failed to parse exception details");
+				}
 			} else if (a_exception.NumberParameters > 0) {
 				a_log.critical("Exception Information Parameters:");
 				for (std::size_t i = 0; i < a_exception.NumberParameters; ++i) {
@@ -1033,7 +1124,19 @@ namespace Crash
 				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
 
-				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules); }, "print_exception");
+				// Construct callstack early so we can extract throw location for C++ exceptions
+				std::optional<Callstack> callstack;
+				std::string throwLocation;
+				try {
+					callstack.emplace(*a_exception->ExceptionRecord);
+					if (IsCppException(*a_exception->ExceptionRecord)) {
+						throwLocation = callstack->get_throw_location(cmodules);
+					}
+				} catch (...) {
+					// Callstack construction failed, continue without it
+				}
+
+				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules, throwLocation); }, "print_exception");
 
 				// Collect relevant objects from registers and stack (fast pass, no printing)
 				try {
@@ -1076,8 +1179,13 @@ namespace Crash
 
 				print([&]() {
 					try {
-						const Callstack callstack{ *a_exception->ExceptionRecord };
-						callstack.print(*log, cmodules);
+						if (callstack) {
+							callstack->print(*log, cmodules);
+						} else {
+							// Construct it now if we couldn't earlier
+							const Callstack cs{ *a_exception->ExceptionRecord };
+							cs.print(*log, cmodules);
+						}
 					} catch (const std::bad_alloc&) {
 						log->critical("CALLSTACK ANALYSIS FAILED: Out of memory");
 					} catch (...) {

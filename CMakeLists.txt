@@ -40,6 +40,8 @@ set(sources
         src/Crash/PDB/PdbHandler.h
         src/Crash/Analysis.cpp
         src/Crash/Analysis.h
+        src/Crash/CppException.cpp
+        src/Crash/CppException.h
         src/Crash/CrashHandler.cpp
         src/Crash/CrashHandler.h
         src/Crash/ThreadDump.cpp
