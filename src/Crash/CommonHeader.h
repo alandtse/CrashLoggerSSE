@@ -21,6 +21,10 @@ namespace Crash
 	// Returns the paste URL if successful, empty string otherwise
 	[[nodiscard]] std::string upload_log_to_pastebin(const std::filesystem::path& logPath);
 
+	// Clean up old log files in the directory
+	// keeps the N most recent logs (and their associated .dmp files)
+	void clean_old_logs(const std::filesystem::path& directory, std::string_view prefix, int max_count);
+
 	// Copy text to Windows clipboard
 	bool copy_to_clipboard(const std::string& text);
 

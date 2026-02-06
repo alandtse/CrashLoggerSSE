@@ -17,6 +17,7 @@ public:
 		std::string symcache{ "" };
 		std::string crashDirectory{ "" };
 		bool crashLogWriteMinidump{ false };
+		int maxCrashLogs{ 20 };
 
 		// Thread dump hotkey settings
 		bool enableThreadDumpHotkey{ true };

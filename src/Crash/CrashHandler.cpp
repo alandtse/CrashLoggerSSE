@@ -1088,6 +1088,9 @@ namespace Crash
 				auto [log, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
 				crashLogPath = logPath;
 
+				// Clean up old logs
+				clean_old_logs(logPath.parent_path(), "crash-"sv, Settings::GetSingleton()->GetDebug().maxCrashLogs);
+
 				// Write minidump if requested
 				if (Settings::GetSingleton()->GetDebug().crashLogWriteMinidump) {
 					try {

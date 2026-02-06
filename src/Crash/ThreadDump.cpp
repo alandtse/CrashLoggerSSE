@@ -182,6 +182,9 @@ namespace Crash
 			// Create log file
 			auto [log, logPath] = get_timestamped_log("threaddump-"sv, "thread dump"s);
 
+			// Clean up old thread dumps
+			clean_old_logs(logPath.parent_path(), "threaddump-"sv, Settings::GetSingleton()->GetDebug().maxCrashLogs);
+
 			log_common_header_info(*log, "THREAD DUMP (Manual Trigger)", "TIME:"sv);
 
 			// Get loaded modules

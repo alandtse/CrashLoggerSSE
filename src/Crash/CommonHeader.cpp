@@ -92,6 +92,84 @@ namespace Crash
 		return { log, *path };
 	}
 
+	// Clean up old log files
+	void clean_old_logs(const std::filesystem::path& directory, std::string_view prefix, int max_count)
+	{
+		if (max_count <= 0)
+			return;
+
+		try {
+			if (!std::filesystem::exists(directory))
+				return;
+
+			struct LogFile
+			{
+				std::filesystem::path path;
+				std::filesystem::file_time_type time;
+			};
+
+			std::vector<LogFile> files;
+
+			// Collect all files matching the prefix
+			for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+				if (entry.is_regular_file()) {
+					const auto filename = entry.path().filename().string();
+					if (filename.starts_with(prefix) && (filename.ends_with(".log") || filename.ends_with(".dmp"))) {
+						std::error_code ec;
+						const auto time = std::filesystem::last_write_time(entry.path(), ec);
+						if (!ec) {
+							files.push_back({ entry.path(), time });
+						}
+					}
+				}
+			}
+
+			// If we have more logs than allowed (counting .log files primarily)
+			// We group .log and .dmp files by timestamp usually, but simple counting works if we assume 1:1 or 1:0 relation
+			// A better approach is to sort all files by time, and keep the newest N *sets*
+			// But simpler: just sort all files by time descending, and delete starting from index (max_count * files_per_crash)
+			// Actually, let's just count unique timestamps or base filenames?
+			// The requested logic is "max logs".
+			// Let's filter only .log files first to decide what to delete.
+
+			std::vector<LogFile> logFiles;
+			for (const auto& f : files) {
+				if (f.path.extension() == ".log") {
+					logFiles.push_back(f);
+				}
+			}
+
+			if (static_cast<int>(logFiles.size()) <= max_count) {
+				return;
+			}
+
+			// Sort by time descending (newest first)
+			std::sort(logFiles.begin(), logFiles.end(), [](const LogFile& a, const LogFile& b) {
+				return a.time > b.time;
+			});
+
+			// Identify files to delete (from index max_count onwards)
+			for (size_t i = max_count; i < logFiles.size(); ++i) {
+				const auto& logFile = logFiles[i];
+
+				// Delete the .log file
+				std::filesystem::remove(logFile.path);
+				logger::info("Cleaned up old crash log: {}", logFile.path.filename().string());
+
+				// Try to delete corresponding .dmp file
+				auto dmpPath = logFile.path;
+				dmpPath.replace_extension(".dmp");
+				if (std::filesystem::exists(dmpPath)) {
+					std::filesystem::remove(dmpPath);
+					logger::info("Cleaned up old minidump: {}", dmpPath.filename().string());
+				}
+			}
+
+		} catch (const std::exception& e) {
+			logger::error("Failed to clean old logs: {}", e.what());
+		}
+	}
+
 	// Copy text to Windows clipboard
 	bool copy_to_clipboard(const std::string& text)
 	{
