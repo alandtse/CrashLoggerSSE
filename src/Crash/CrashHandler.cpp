@@ -505,7 +505,15 @@ namespace Crash
 			} else if (a_exception.NumberParameters > 0) {
 				a_log.critical("Exception Information Parameters:");
 				for (std::size_t i = 0; i < a_exception.NumberParameters; ++i) {
-					a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, a_exception.ExceptionInformation[i]);
+					const auto param = a_exception.ExceptionInformation[i];
+					const std::size_t params[] = { param };
+					const auto analysis = Introspection::analyze_data(params, a_modules);
+
+					if (!analysis.empty() && !analysis[0].empty()) {
+						a_log.critical("\tParameter[{}]: 0x{:012X} {}"sv, i, param, analysis[0]);
+					} else {
+						a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, param);
+					}
 				}
 			}
 
