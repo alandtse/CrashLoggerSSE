@@ -1673,6 +1673,74 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+
+	class ServingThread
+	{
+	public:
+		using value_type = RE::JobListManager::ServingThread;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+
+			try {
+				const auto threadID = object->threadID;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Thread ID"sv, "", tab_depth),
+					fmt::format("0x{:08X}"sv, threadID));
+			} catch (...) {}
+
+			try {
+				const auto ownerThreadID = object->ownerThreadID;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Owner Thread ID"sv, "", tab_depth),
+					fmt::format("0x{:08X}"sv, ownerThreadID));
+			} catch (...) {}
+
+			try {
+				const auto initialized = object->initialized;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Initialized"sv, "", tab_depth),
+					fmt::format("{}"sv, initialized));
+			} catch (...) {}
+
+			try {
+				const auto bRunning = object->bRunning;
+				const auto bProcessing = object->bProcessing;
+				const auto bShutDown = object->bShutDown;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Status"sv, "", tab_depth),
+					fmt::format("Running={}, Processing={}, ShutDown={}", bRunning, bProcessing, bShutDown));
+			} catch (...) {}
+
+			try {
+				const auto states = object->states;
+				std::string stateStr;
+				for (int i = 0; i < 2; ++i) {
+					const auto state = states[i];
+					const auto stateName = magic_enum::enum_name(state);
+					const auto stateValue = std::to_underlying(state);
+					if (!stateStr.empty())
+						stateStr += ", ";
+					stateStr += fmt::format("State[{}]: {} ({})", i, stateName.empty() ? "Unknown" : std::string(stateName), stateValue);
+				}
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}States"sv, "", tab_depth),
+					stateStr);
+			} catch (...) {}
+
+			try {
+				// Note: BSEventFlag doesn't have a public interface to check state
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Events"sv, "", tab_depth),
+					"NewWork, WorkDone");
+			} catch (...) {}
+		}
+	};
 }
 
 namespace Crash::Introspection
@@ -1873,6 +1941,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
 				std::make_pair(".?AVScriptEffect@@"sv, SSE::ScriptEffect::filter),
+				std::make_pair(".?AVServingThread@JobListManager@@"sv, SSE::ServingThread::filter),
 				std::make_pair(".?AVSimpleAllocMemoryPagePolicy@BSScript@@"sv, SSE::BSScript::SimpleAllocMemoryPagePolicy::filter),
 				std::make_pair(".?AVVirtualMachine@Internal@BSScript@@"sv, SSE::BSScript::Internal::VirtualMachine::filter),
 				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
