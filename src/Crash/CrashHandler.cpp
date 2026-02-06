@@ -1089,7 +1089,9 @@ namespace Crash
 				crashLogPath = logPath;
 
 				// Clean up old logs
-				clean_old_logs(logPath.parent_path(), "crash-"sv, Settings::GetSingleton()->GetDebug().maxCrashLogs);
+				const auto& debug = Settings::GetSingleton()->GetDebug();
+				clean_old_files(logPath.parent_path(), "crash-"sv, ".log", debug.maxCrashLogs, ".dmp");
+				clean_old_files(logPath.parent_path(), "crash-"sv, ".dmp", debug.maxMinidumps);
 
 				// Write minidump if requested
 				if (Settings::GetSingleton()->GetDebug().crashLogWriteMinidump) {

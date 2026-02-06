@@ -18,6 +18,7 @@ public:
 		std::string crashDirectory{ "" };
 		bool crashLogWriteMinidump{ false };
 		int maxCrashLogs{ 20 };
+		int maxMinidumps{ 1 };
 
 		// Thread dump hotkey settings
 		bool enableThreadDumpHotkey{ true };

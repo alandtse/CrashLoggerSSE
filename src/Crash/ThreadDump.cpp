@@ -183,7 +183,9 @@ namespace Crash
 			auto [log, logPath] = get_timestamped_log("threaddump-"sv, "thread dump"s);
 
 			// Clean up old thread dumps
-			clean_old_logs(logPath.parent_path(), "threaddump-"sv, Settings::GetSingleton()->GetDebug().maxCrashLogs);
+			const auto& debug = Settings::GetSingleton()->GetDebug();
+			clean_old_files(logPath.parent_path(), "threaddump-"sv, ".log", debug.maxCrashLogs, ".dmp");
+			clean_old_files(logPath.parent_path(), "threaddump-"sv, ".dmp", debug.maxMinidumps);
 
 			log_common_header_info(*log, "THREAD DUMP (Manual Trigger)", "TIME:"sv);
 
