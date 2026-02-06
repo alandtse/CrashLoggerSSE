@@ -9,6 +9,9 @@
 #include <magic_enum/magic_enum.hpp>
 #include <unordered_map>
 
+#include "RE/M/Main.h"
+#include "RE/S/ShadowSceneNode.h"
+
 namespace Crash::Introspection::SSE
 {
 	using filter_results = std::vector<std::pair<std::string, std::string>>;
@@ -1741,6 +1744,81 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+
+	class ShadowSceneNode
+	{
+	public:
+		using value_type = RE::ShadowSceneNode;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+
+			try {
+				const auto& runtimeData = object->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Active Lights"sv, "", tab_depth),
+					fmt::format("{}"sv, runtimeData.activeLights.size()));
+			} catch (...) {}
+
+			try {
+				const auto& runtimeData = object->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Active Shadow Lights"sv, "", tab_depth),
+					fmt::format("{}"sv, runtimeData.activeShadowLights.size()));
+			} catch (...) {}
+
+			try {
+				const auto& runtimeData = object->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Lit Geometry"sv, "", tab_depth),
+					fmt::format("{}"sv, runtimeData.litGeometry.size()));
+			} catch (...) {}
+		}
+	};
+
+	class Main
+	{
+	public:
+		using value_type = RE::Main;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Game Active"sv, "", tab_depth),
+					fmt::format("{}"sv, object->gameActive));
+			} catch (...) {}
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}On Idle"sv, "", tab_depth),
+					fmt::format("{}"sv, object->onIdle));
+			} catch (...) {}
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Reload Content"sv, "", tab_depth),
+					fmt::format("{}"sv, object->reloadContent));
+			} catch (...) {}
+
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Freeze Time"sv, "", tab_depth),
+					fmt::format("{}"sv, object->freezeTime));
+			} catch (...) {}
+		}
+	};
 }
 
 namespace Crash::Introspection
@@ -1933,6 +2011,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVhkbNode@@"sv, SSE::hkbNode::filter),
 				std::make_pair(".?AVhkpConstraintInstance@@"sv, SSE::hkpConstraintInstance::filter),
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
+				std::make_pair(".?AVMain@@"sv, SSE::Main::filter),
 				std::make_pair(".?AVNativeFunctionBase@NF_util@BSScript@@"sv, SSE::BSScript::NF_util::NativeFunctionBase::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
 				std::make_pair(".?AVNiObjectNET@@"sv, SSE::NiObjectNET::filter),
@@ -1942,6 +2021,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
 				std::make_pair(".?AVScriptEffect@@"sv, SSE::ScriptEffect::filter),
 				std::make_pair(".?AVServingThread@JobListManager@@"sv, SSE::ServingThread::filter),
+				std::make_pair(".?AVShadowSceneNode@@"sv, SSE::ShadowSceneNode::filter),
 				std::make_pair(".?AVSimpleAllocMemoryPagePolicy@BSScript@@"sv, SSE::BSScript::SimpleAllocMemoryPagePolicy::filter),
 				std::make_pair(".?AVVirtualMachine@Internal@BSScript@@"sv, SSE::BSScript::Internal::VirtualMachine::filter),
 				std::make_pair(".?AVTESFaction@@"sv, SSE::TESForm<RE::TESFaction>::filter),
