@@ -39,6 +39,20 @@ jobs:
       - name: Report failure
         if: failure()
         run: |
-          echo "::error::Failed to refresh NexusMods credentials. Please update UNEX_NEXUSMODS_SESSION_COOKIE secret manually."
-          echo "::error::Get new cookie from: https://www.nexusmods.com (F12 > Network > Copy 'nexusmods_session' cookie)"
+          echo "::error::==========================================="
+          echo "::error::NEXUS MODS SESSION COOKIE HEALTH CHECK FAILED"
+          echo "::error::==========================================="
+          echo "::error::"
+          echo "::error::Your stored GitHub Secret 'UNEX_NEXUSMODS_SESSION_COOKIE' is too old to refresh."
+          echo "::error::This is just a health check - it does NOT fix the cookie automatically."
+          echo "::error::"
+          echo "::error::ACTION REQUIRED: Manually update the cookie before your next release:"
+          echo "::error::  1. Go to https://www.nexusmods.com and log in"
+          echo "::error::  2. Press F12 → Application/Storage → Cookies"
+          echo "::error::  3. Copy the value of 'nexusmods_session'"
+          echo "::error::  4. Update it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo "::error::"
+          echo "::error::This cron job runs every 5 days as an early warning system."
+          echo "::error::If you don't update the cookie, your next release upload will fail."
+          echo "::error::==========================================="
         shell: pwsh
