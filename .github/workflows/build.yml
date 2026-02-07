@@ -44,7 +44,7 @@ jobs:
           $vcpkgJson = Get-Content vcpkg.json | ConvertFrom-Json
           $baseline = $vcpkgJson.'builtin-baseline'
           echo "baseline=$baseline" >> $env:GITHUB_OUTPUT
-          echo "✓ Using vcpkg baseline from vcpkg.json: $baseline"
+          echo "Using vcpkg baseline from vcpkg.json: $baseline"
 
       - uses: lukka/get-cmake@latest
 
@@ -97,6 +97,14 @@ jobs:
           tag: ${{ steps.semantic.outputs.new_release_git_tag }}
           overwrite: true
 
+      - name: Upload artifact for Nexus
+        if: steps.semantic.outputs.new_release_published == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrashLogger_${{ steps.semantic.outputs.new_release_version }}
+          path: build/release-msvc/CrashLogger_${{ steps.semantic.outputs.new_release_version }}.7z
+          if-no-files-found: error
+
     outputs:
       new_release_published: ${{ steps.semantic.outputs.new_release_published }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
@@ -104,120 +112,24 @@ jobs:
 
   upload-to-nexus:
     name: Upload to Nexus Mods
-    runs-on: windows-latest
     needs: build
-    # Run if: manual trigger OR build created a new release
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' || needs.build.outputs.new_release_published == 'true') &&
       github.repository_owner == 'alandtse'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Determine version to upload
-        id: version
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Manual workflow_dispatch with version input
-          $inputVersion = "${{ inputs.version }}"
-          # Version from build job (new release)
-          $buildVersion = "${{ needs.build.outputs.new_release_version }}"
-
-          if ($inputVersion) {
-            $version = $inputVersion
-            Write-Output "Using manually specified version: $version"
-          } elseif ($buildVersion) {
-            $version = $buildVersion
-            Write-Output "Using version from build job: $version"
-          } else {
-            # Auto-detect latest release
-            $latestRelease = gh release list --limit 1 --json tagName --jq '.[0].tagName'
-            $version = $latestRelease -replace '^v', ''
-            Write-Output "Auto-detected latest release: $version"
-          }
-
-          Write-Output "VERSION=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Download release artifact
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $fileName = "CrashLogger_$version.7z"
-
-          Write-Output "Downloading $fileName from release v$version"
-          New-Item -ItemType Directory -Force -Path ./download
-          gh release download "v$version" --pattern "$fileName" --dir ./download
-
-          if (!(Test-Path "./download/$fileName")) {
-            Write-Error "Failed to download $fileName from release v$version"
-            exit 1
-          }
-
-          Write-Output "Successfully downloaded $fileName"
-
-      - name: Get changelog
-        id: changelog
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $buildNotes = @"
-          ${{ needs.build.outputs.new_release_notes }}
-          "@
-
-          if ($buildNotes.Trim()) {
-            $changelog = $buildNotes
-            Write-Output "Using changelog from build job"
-          } else {
-            # Get from GitHub release
-            $changelog = gh release view "v$version" --json body --jq .body
-            Write-Output "Using GitHub release notes for v$version"
-          }
-
-          $changelog | Out-File -FilePath changelog.txt -Encoding utf8
-
-      - name: Setup Dotnet
-        uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: 8.x.x
-
-      - name: Download NexusUploader
-        run: dotnet tool install -g BUTR.NexusUploader
-
-      - name: Refresh Nexus session cookie
-        env:
-          UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
-        run: unex refresh
-
-      - name: Upload file to Nexus
-        env:
-          UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
-          UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
-          UNEX_GAME: skyrimspecialedition
-          UNEX_MODID: 59818
-          UNEX_DEBUG: true
-          UNEX_FILENAME: CrashLogger
-          UNEX_FILEDESCRIPTION: |-
-            See Description -> Requirements for installation instructions.
-            PDB is for crash debugging and can be removed.
-          UNEX_PREVIOUSFILE: "auto"
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $file = "./download/CrashLogger_$version.7z"
-
-          unex upload $env:UNEX_MODID $file -v $version
-
-      - name: Upload changelog to Nexus
-        env:
-          UNEX_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
-          UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
-          UNEX_GAME: skyrimspecialedition
-          UNEX_MODID: 59818
-        run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-          $changelog = Get-Content changelog.txt -Raw
-
-          unex changelog $version -c "$changelog"
+    uses: alandtse/nexus-workflows/.github/workflows/upload-nexus.yml@main
+    with:
+      nexus_game_id: skyrimspecialedition
+      nexus_mod_id: 59818
+      artifact_name: ${{ needs.build.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.build.outputs.new_release_version) || '' }}
+      tag_name: ${{ needs.build.outputs.new_release_published != 'true' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
+      mod_version: ${{ needs.build.outputs.new_release_version || inputs.version }}
+      mod_filename: CrashLogger
+      changelog: ${{ needs.build.outputs.new_release_notes }}
+      file_description: |
+        See Description → Requirements for installation instructions.
+        PDB is for crash debugging and can be removed.
+      previous_file: auto
+    secrets:
+      UNEX_NEXUSMODS_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
+      UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}

@@ -1,0 +1,13 @@
+name: Refresh Nexus Credentials
+
+on:
+  schedule:
+    # Run every 5 days at midnight (cookies expire after ~7 days, need safety margin)
+    - cron: "0 0 */5 * *"
+  workflow_dispatch:
+
+jobs:
+  refresh-credentials:
+    uses: alandtse/nexus-workflows/.github/workflows/validate-access.yml@main
+    secrets:
+      UNEX_NEXUSMODS_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}

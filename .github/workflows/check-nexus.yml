@@ -1,0 +1,20 @@
+name: Check Nexus Credentials
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-credentials:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup UNEX
+        uses: alandtse/nexus-workflows/.github/actions/setup-unex@main
+
+      - name: Check Nexus Credentials
+        uses: alandtse/nexus-workflows/.github/actions/check-nexus@main
+        with:
+          nexus-session-cookie: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
+          nexus-api-key: ${{ secrets.UNEX_APIKEY }}
