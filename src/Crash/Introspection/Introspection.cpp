@@ -1839,8 +1839,14 @@ namespace Crash::Introspection
 
 	namespace detail
 	{
-		static std::unordered_map<const void*, std::string> seen_objects;
+		struct SeenObjectInfo
+		{
+			std::string result;
+			std::size_t first_seen_pos;
+		};
+		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
 		static std::function<std::string(size_t)> label_generator;
+		static thread_local std::size_t current_analysis_pos = 0;
 		static std::size_t total_backfill_count = 0;
 		static bool backfill_logged_this_crash = false;
 		class Integer
@@ -1879,7 +1885,7 @@ namespace Crash::Introspection
 				// Check if this address was already introspected as a known object
 				auto it = seen_objects.find(_ptr);
 				if (it != seen_objects.end()) {
-					return it->second;  // Return the full object information
+					return it->second.result;  // Return the full object information
 				}
 
 				if (_module) {
@@ -1902,7 +1908,7 @@ namespace Crash::Introspection
 							assembly);
 
 					// Store in seen_objects to prevent duplicate introspection
-					seen_objects[_ptr] = result;
+					seen_objects[_ptr] = { result, current_analysis_pos };
 					return result;
 				} else {
 					return "(void*)"s;
@@ -1934,12 +1940,13 @@ namespace Crash::Introspection
 				if (_ptr) {
 					auto it = seen_objects.find(_ptr);
 					if (it != seen_objects.end()) {
-						// Include type info in the cross-reference
-						return fmt::format("{} See 0x{:X}", result, reinterpret_cast<std::uintptr_t>(_ptr));
+						// Include type info in the cross-reference with location
+						std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						return fmt::format("{} See {}", result, location);
 					}
 
 					// Store type info in seen_objects for future references
-					seen_objects[_ptr] = result;
+					seen_objects[_ptr] = { result, current_analysis_pos };
 				}
 
 				return result;
@@ -1969,7 +1976,9 @@ namespace Crash::Introspection
 			{
 				auto it = seen_objects.find(_ptr);
 				if (it != seen_objects.end()) {
-					return fmt::format("{} See 0x{:X}", _poly.name(), reinterpret_cast<std::uintptr_t>(_ptr));
+					// Include type info in the cross-reference with location
+					std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+					return fmt::format("{} See {}", _poly.name(), location);
 				}
 
 				auto result = _poly.name();
@@ -2009,7 +2018,7 @@ namespace Crash::Introspection
 				}
 
 				// Store the complete result for backfilling void* references
-				seen_objects[_ptr] = result;
+				seen_objects[_ptr] = { result, current_analysis_pos };
 
 				return result;
 			}
@@ -2217,8 +2226,9 @@ namespace Crash::Introspection
 			a_data.begin(),
 			a_data.end(),
 			[&](auto& a_val) {
-				const auto result = detail::analyze_integer(a_val, a_modules);
 				const auto pos = std::addressof(a_val) - a_data.data();
+				detail::current_analysis_pos = static_cast<std::size_t>(pos);
+				const auto result = detail::analyze_integer(a_val, a_modules);
 				results[pos] = std::visit(
 					[](const auto& a_analysis) { return a_analysis.name(); },
 					result);
@@ -2241,7 +2251,7 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 			auto it = detail::seen_objects.find(reinterpret_cast<const void*>(addr));
 			if (it != detail::seen_objects.end()) {
 				// Replace with full object information
-				result = it->second;
+				result = it->second.result;
 				++detail::total_backfill_count;
 			}
 		}
