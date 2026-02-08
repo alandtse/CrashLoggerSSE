@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 struct _EXCEPTION_RECORD;
 
 namespace Crash
@@ -27,6 +29,10 @@ namespace Crash
 		// Returns empty string if not found
 		[[nodiscard]] std::string get_throw_location(
 			std::span<const std::unique_ptr<Modules::Module>> a_modules) const;
+
+		[[nodiscard]] std::vector<std::string> get_frame_info_strings(
+			std::span<const std::unique_ptr<Modules::Module>> a_modules,
+			std::size_t a_max_frames = 50) const;
 
 	private:
 		[[nodiscard]] static std::string get_size_string(std::size_t a_size);

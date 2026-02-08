@@ -1898,6 +1898,68 @@ namespace Crash::Introspection
 			const std::string name_string;
 		};
 
+		class FormID
+		{
+		public:
+			FormID(std::uint32_t a_id, RE::TESForm* a_form) noexcept :
+				_id(a_id),
+				_form(a_form)
+			{}
+
+			[[nodiscard]] std::string name() const
+			{
+				if (!_form) {
+					return fmt::format("(FormID 0x{:08X})", _id);
+				}
+
+				std::string name;
+				std::string editorID;
+				std::string filename;
+				std::string typeName;
+				try {
+					if (const auto formName = _form->GetName(); formName && formName[0]) {
+						name = formName;
+					}
+				} catch (...) {}
+
+				try {
+					if (const auto formEditorID = _form->GetFormEditorID(); formEditorID && formEditorID[0]) {
+						editorID = formEditorID;
+					}
+				} catch (...) {}
+
+				try {
+					if (const auto file = _form->GetDescriptionOwnerFile(); file) {
+						filename = file->GetFilename();
+					}
+				} catch (...) {}
+
+				try {
+					typeName = std::string(magic_enum::enum_name(_form->GetFormType()));
+				} catch (...) {}
+
+				std::string result = fmt::format("(FormID 0x{:08X}", _id);
+				if (!name.empty()) {
+					result += fmt::format(" \"{}\"", name);
+				}
+				if (!editorID.empty()) {
+					result += fmt::format(" [{}]", editorID);
+				}
+				if (!filename.empty()) {
+					result += fmt::format(" ({})", filename);
+				}
+				if (!typeName.empty()) {
+					result += fmt::format(" {}", typeName);
+				}
+				result += ")";
+				return result;
+			}
+
+		private:
+			std::uint32_t _id;
+			RE::TESForm* _form;
+		};
+
 		class Pointer
 		{
 		public:
@@ -2181,6 +2243,7 @@ namespace Crash::Introspection
 
 		using analysis_result = std::variant<
 			Integer,
+			FormID,
 			Pointer,
 			Polymorphic,
 			F4Polymorphic,
@@ -2292,6 +2355,13 @@ namespace Crash::Introspection
 			-> analysis_result
 		{
 			try {
+				if (a_value <= std::numeric_limits<std::uint32_t>::max()) {
+					const auto formId = static_cast<RE::FormID>(a_value);
+					if (auto form = RE::TESForm::LookupByID(formId)) {
+						return make_result<FormID>(formId, form);
+					}
+				}
+
 				if (a_value != 0) {
 					*reinterpret_cast<const volatile std::byte*>(a_value);
 					return analyze_pointer(reinterpret_cast<void*>(a_value), a_modules);

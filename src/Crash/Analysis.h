@@ -108,6 +108,18 @@ namespace Crash
 		std::span<const void* const> a_frames,
 		std::span<const module_pointer> a_modules);
 
+	// Scan raw stack data for plausible return addresses and build a reconstructed callstack
+	[[nodiscard]] std::vector<const void*> scan_stack_for_frames(
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_frames = 128);
+
+	// Print a reconstructed callstack from a stack scan
+	void print_reconstructed_callstack(
+		spdlog::logger& a_log,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules);
+
 	// Minidump generation (shared between crash logs and thread dumps)
 
 	// Write a minidump file for WinDbg analysis

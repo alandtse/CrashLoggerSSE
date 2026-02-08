@@ -11,6 +11,7 @@
 #include "dxgi1_4.h"
 #include <Settings.h>
 #include <TlHelp32.h>
+#include <Zydis/Zydis.h>
 #include <iomanip>
 #include <magic_enum/magic_enum.hpp>
 #include <openvr.h>
@@ -166,6 +167,32 @@ namespace Crash
 		}
 
 		return "";
+	}
+
+	std::vector<std::string> Callstack::get_frame_info_strings(
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_frames) const
+	{
+		std::vector<std::string> results;
+		const auto frame_count = std::min(_frames.size(), a_max_frames);
+		results.reserve(frame_count);
+
+		for (std::size_t i = 0; i < frame_count; ++i) {
+			try {
+				const auto& frame = _frames[i];
+				const auto addr = frame.address();
+				const auto mod = Introspection::get_module_for_pointer(addr, a_modules);
+				if (mod) {
+					results.push_back(fmt::format("{}{}", mod->name(), mod->frame_info(frame)));
+				} else {
+					results.push_back("<unknown>");
+				}
+			} catch (...) {
+				results.push_back("<frame error>");
+			}
+		}
+
+		return results;
 	}
 
 	std::string Callstack::get_size_string(std::size_t a_size)
@@ -392,7 +419,117 @@ namespace Crash
 			}
 		}
 
-		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules, const std::string& a_throwLocation = "")
+		std::optional<std::size_t> get_register_value(const ::CONTEXT& a_context, ZydisRegister reg)
+		{
+			const auto fullReg = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, reg);
+			switch (fullReg) {
+			case ZYDIS_REGISTER_RAX:
+				return a_context.Rax;
+			case ZYDIS_REGISTER_RBX:
+				return a_context.Rbx;
+			case ZYDIS_REGISTER_RCX:
+				return a_context.Rcx;
+			case ZYDIS_REGISTER_RDX:
+				return a_context.Rdx;
+			case ZYDIS_REGISTER_RSI:
+				return a_context.Rsi;
+			case ZYDIS_REGISTER_RDI:
+				return a_context.Rdi;
+			case ZYDIS_REGISTER_RBP:
+				return a_context.Rbp;
+			case ZYDIS_REGISTER_RSP:
+				return a_context.Rsp;
+			case ZYDIS_REGISTER_R8:
+				return a_context.R8;
+			case ZYDIS_REGISTER_R9:
+				return a_context.R9;
+			case ZYDIS_REGISTER_R10:
+				return a_context.R10;
+			case ZYDIS_REGISTER_R11:
+				return a_context.R11;
+			case ZYDIS_REGISTER_R12:
+				return a_context.R12;
+			case ZYDIS_REGISTER_R13:
+				return a_context.R13;
+			case ZYDIS_REGISTER_R14:
+				return a_context.R14;
+			case ZYDIS_REGISTER_R15:
+				return a_context.R15;
+			default:
+				return std::nullopt;
+			}
+		}
+
+		void print_access_violation_analysis(
+			spdlog::logger& a_log,
+			const ::EXCEPTION_RECORD& a_exception,
+			const ::CONTEXT& a_context)
+		{
+			const auto ip = a_exception.ExceptionAddress;
+			ZydisDisassembledInstruction instruction{};
+			if (!ZYAN_SUCCESS(ZydisDisassembleIntel(
+					/* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+					/* runtime_address: */ reinterpret_cast<ZyanU64>(ip),
+					/* buffer:          */ reinterpret_cast<const ZyanU8*>(ip),
+					/* length:          */ 16,
+					/* instruction:     */ &instruction))) {
+				return;
+			}
+
+			a_log.critical("ACCESS VIOLATION ANALYSIS:"sv);
+			a_log.critical("\tInstruction: {}"sv, instruction.text);
+
+			for (std::size_t i = 0; i < instruction.info.operand_count; ++i) {
+				const auto& operand = instruction.operands[i];
+				if (operand.type != ZYDIS_OPERAND_TYPE_MEMORY) {
+					continue;
+				}
+
+				const auto baseValue = get_register_value(a_context, operand.mem.base);
+				const auto indexValue = get_register_value(a_context, operand.mem.index);
+				const auto scale = operand.mem.scale;
+				auto displacement = static_cast<std::int64_t>(operand.mem.disp.value);
+
+				std::optional<std::uint64_t> effectiveAddress;
+				if (baseValue) {
+					effectiveAddress = *baseValue + displacement;
+					if (indexValue && scale > 0) {
+						effectiveAddress = *effectiveAddress + (*indexValue * scale);
+					}
+				}
+
+				const auto baseName = ZydisRegisterGetString(operand.mem.base);
+				const auto indexName = ZydisRegisterGetString(operand.mem.index);
+				a_log.critical("\tMemory Operand: [base={}, index={}, scale={}, disp={:+#x}]"sv,
+					baseName ? baseName : "<none>"sv,
+					indexName ? indexName : "<none>"sv,
+					scale,
+					displacement);
+
+				if (baseValue) {
+					const bool suspicious = (*baseValue == 0) || (*baseValue == std::numeric_limits<std::size_t>::max()) || (*baseValue < 0x10000);
+					a_log.critical("\tBase Register: {} = 0x{:016X}{}"sv,
+						baseName ? baseName : "<none>"sv,
+						*baseValue,
+						suspicious ? " (likely invalid)"sv : ""sv);
+				}
+				if (indexValue) {
+					a_log.critical("\tIndex Register: {} = 0x{:016X}"sv,
+						indexName ? indexName : "<none>"sv,
+						*indexValue);
+				}
+
+				if (effectiveAddress) {
+					a_log.critical("\tComputed Address: 0x{:016X}"sv, *effectiveAddress);
+					if (a_exception.ExceptionInformation[1] != 0 && *effectiveAddress != a_exception.ExceptionInformation[1]) {
+						a_log.critical("\tFault Address:   0x{:016X} (mismatch)"sv, a_exception.ExceptionInformation[1]);
+					}
+				}
+				break;
+			}
+		}
+
+		void print_exception(spdlog::logger& a_log, const ::EXCEPTION_RECORD& a_exception, std::span<const module_pointer> a_modules, const std::string& a_throwLocation = "", const ::CONTEXT* a_context = nullptr)
 		{
 #define EXCEPTION_CASE(a_code) \
 	case a_code:               \
@@ -474,6 +611,9 @@ namespace Crash
 				                                                                   "unknown";
 				const auto faultAddress = a_exception.ExceptionInformation[1];
 				a_log.critical("Access Violation: Tried to {} memory at 0x{:012X}"sv, accessType, faultAddress);
+				if (a_context) {
+					print_access_violation_analysis(a_log, a_exception, *a_context);
+				}
 			} else if (a_exception.ExceptionCode == EXCEPTION_IN_PAGE_ERROR) {
 				const auto accessType = a_exception.ExceptionInformation[0] == 0 ? "read" :
 				                        a_exception.ExceptionInformation[0] == 1 ? "write" :
@@ -541,7 +681,7 @@ namespace Crash
 				a_log.critical("Nested Exception (depth {}):", exception_depth + 1);
 				++exception_depth;
 				try {
-					print_exception(a_log, *a_exception.ExceptionRecord, a_modules);
+					print_exception(a_log, *a_exception.ExceptionRecord, a_modules, "", nullptr);
 				} catch (...) {
 					a_log.critical("Failed to process nested exception at depth {}", exception_depth);
 				}
@@ -967,6 +1107,76 @@ namespace Crash
 			}
 		}
 
+		bool contains_case_insensitive(std::string_view haystack, std::string_view needle)
+		{
+			if (needle.empty()) {
+				return false;
+			}
+			auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+				[](char a, char b) {
+					return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+				});
+			return it != haystack.end();
+		}
+
+		void print_thread_context(spdlog::logger& a_log, const Callstack* a_callstack, std::span<const module_pointer> a_modules)
+		{
+			a_log.critical("THREAD CONTEXT (HEURISTIC):"sv);
+
+			if (!a_callstack) {
+				a_log.critical("\tUnavailable"sv);
+				return;
+			}
+
+			const auto frames = a_callstack->get_frame_info_strings(a_modules, 50);
+			if (frames.empty()) {
+				a_log.critical("\tNo frames available"sv);
+				return;
+			}
+
+			std::vector<std::string> indicators;
+			auto add_indicator = [&](std::string_view label) {
+				if (std::find(indicators.begin(), indicators.end(), label) == indicators.end()) {
+					indicators.emplace_back(label);
+				}
+			};
+
+			for (const auto& frame : frames) {
+				if (contains_case_insensitive(frame, "BSScript") || contains_case_insensitive(frame, "Papyrus")) {
+					add_indicator("Papyrus VM");
+				}
+				if (contains_case_insensitive(frame, "hkp") || contains_case_insensitive(frame, "Havok")) {
+					add_indicator("Havok/Physics");
+				}
+				if (contains_case_insensitive(frame, "Render") || contains_case_insensitive(frame, "BSRender")) {
+					add_indicator("Rendering");
+				}
+				if (contains_case_insensitive(frame, "Audio") || contains_case_insensitive(frame, "XAudio")) {
+					add_indicator("Audio");
+				}
+				if (contains_case_insensitive(frame, "Job") || contains_case_insensitive(frame, "Task")) {
+					add_indicator("Job/Task");
+				}
+			}
+
+			const auto priority = GetThreadPriority(GetCurrentThread());
+			a_log.critical("\tThread Priority: {}"sv, priority);
+
+			if (indicators.empty()) {
+				a_log.critical("\tLikely Role: Unknown (main or worker thread)"sv);
+				return;
+			}
+
+			std::string joined;
+			for (std::size_t i = 0; i < indicators.size(); ++i) {
+				if (i > 0) {
+					joined += ", ";
+				}
+				joined += indicators[i];
+			}
+			a_log.critical("\tLikely Role: {}"sv, joined);
+		}
+
 		void print_vrinfo(spdlog::logger& a_log)
 		{
 			static auto openvr = GetModuleHandle(L"openvr_api");  // dynamically attach to open_vr
@@ -1166,7 +1376,7 @@ namespace Crash
 					// Callstack construction failed, continue without it
 				}
 
-				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules, throwLocation); }, "print_exception");
+				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules, throwLocation, a_exception->ContextRecord); }, "print_exception");
 
 				// Reset introspection state once per crash (before all analysis)
 				Introspection::reset_analysis_state();
@@ -1206,6 +1416,7 @@ namespace Crash
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
+				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
 				print([&]() { print_sysinfo(*log); }, "print_sysinfo");
 				if (REL::Module::IsVR())
 					print([&]() { print_vrinfo(*log); }, "print_vrinfo");
@@ -1233,6 +1444,17 @@ namespace Crash
 					}
 				},
 					"probable_callstack");
+
+				print([&]() {
+					const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
+					if (!stack_opt) {
+						log->critical("RECONSTRUCTED CALL STACK (STACK SCAN):");
+						log->critical("\tFAILED TO READ TIB");
+						return;
+					}
+					print_reconstructed_callstack(*log, *stack_opt, cmodules);
+				},
+					"reconstructed_callstack");
 
 				// Analyze registers and stack first, then backfill, then print
 				try {

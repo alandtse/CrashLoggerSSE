@@ -435,6 +435,117 @@ namespace Crash
 			return errMsg;
 		}
 
+		namespace
+		{
+			[[nodiscard]] std::string base_type_to_string(DWORD baseType, ULONGLONG length)
+			{
+				switch (baseType) {
+				case btVoid:
+					return "void";
+				case btBool:
+					return "bool";
+				case btChar:
+					return "char";
+				case btWChar:
+					return "wchar_t";
+				case btInt:
+					switch (length) {
+					case 1:
+						return "int8_t";
+					case 2:
+						return "int16_t";
+					case 4:
+						return "int32_t";
+					case 8:
+						return "int64_t";
+					default:
+						return "int";
+					}
+				case btUInt:
+					switch (length) {
+					case 1:
+						return "uint8_t";
+					case 2:
+						return "uint16_t";
+					case 4:
+						return "uint32_t";
+					case 8:
+						return "uint64_t";
+					default:
+						return "unsigned int";
+					}
+				case btFloat:
+					return length == 8 ? "double" : "float";
+				case btLong:
+					return "long";
+				case btULong:
+					return "unsigned long";
+				default:
+					return "<unknown>";
+				}
+			}
+
+			[[nodiscard]] std::string get_symbol_name(IDiaSymbol* symbol)
+			{
+				BSTR name{};
+				if (symbol->get_name(&name) == S_OK && name) {
+					const auto converted = ConvertBSTRToMBS(name);
+					return demangle(converted);
+				}
+				return "";
+			}
+
+			[[nodiscard]] std::string get_type_name(IDiaSymbol* type)
+			{
+				if (!type) {
+					return "<unknown>";
+				}
+
+				DWORD symTag = 0;
+				if (FAILED(type->get_symTag(&symTag))) {
+					return "<unknown>";
+				}
+
+				switch (symTag) {
+				case SymTagPointerType:
+					{
+						CComPtr<IDiaSymbol> pointee;
+						type->get_type(&pointee);
+						auto name = get_type_name(pointee);
+						BOOL isConst = FALSE;
+						type->get_constType(&isConst);
+						if (isConst && !name.starts_with("const ")) {
+							name = "const " + name;
+						}
+						return name + "*";
+					}
+				case SymTagBaseType:
+					{
+						DWORD baseType = 0;
+						ULONGLONG length = 0;
+						type->get_baseType(&baseType);
+						type->get_length(&length);
+						return base_type_to_string(baseType, length);
+					}
+				case SymTagEnum:
+				case SymTagUDT:
+					return get_symbol_name(type);
+				case SymTagArrayType:
+					{
+						CComPtr<IDiaSymbol> element;
+						type->get_type(&element);
+						DWORD count = 0;
+						type->get_count(&count);
+						return fmt::format("{}[{}]", get_type_name(element), count);
+					}
+				case SymTagFunctionType:
+					return "function";
+				default:
+					return get_symbol_name(type);
+				}
+			}
+		}
+
 		//https://stackoverflow.com/questions/68412597/determining-source-code-filename-and-line-for-function-using-visual-studio-pdb
 		std::string pdb_details(std::string_view a_name, uintptr_t a_offset)
 		{
@@ -604,6 +715,160 @@ namespace Crash
 				}
 			} else {
 				logger::info("No public symbol found for {}+{:07X}", a_name, a_offset);
+			}
+
+			if (com_initialized_here)
+				CoUninitialize();
+			return result;
+		}
+
+		std::string pdb_function_parameters(std::string_view a_name, uintptr_t a_offset)
+		{
+			static std::mutex sync;
+			std::lock_guard l{ sync };
+			std::string result;
+
+			std::filesystem::path dllPath{ a_name };
+			std::string dll_path = a_name.data();
+			if (!dllPath.has_parent_path()) {
+				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
+			}
+
+			const auto rva = static_cast<DWORD>(a_offset);
+			CComPtr<IDiaDataSource> pSource;
+			HRESULT hr = S_OK;
+
+			hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+			if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+				return result;
+			}
+			bool com_initialized_here = SUCCEEDED(hr);
+
+			auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
+			hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource), (void**)&pSource);
+			if (FAILED(hr)) {
+				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
+					if (com_initialized_here)
+						CoUninitialize();
+					return result;
+				}
+			}
+
+			wchar_t wszFilename[_MAX_PATH];
+			wchar_t wszPath[_MAX_PATH];
+			std::wstring dll_path_w = utf8_to_utf16(dll_path);
+			wcsncpy(wszFilename, dll_path_w.c_str(), sizeof(wszFilename) / sizeof(wchar_t));
+
+			const auto& debugConfig = Settings::GetSingleton()->GetDebug();
+			std::string symcache = debugConfig.symcache;
+			static bool symcacheChecked = false;
+			static bool symcacheValid = false;
+			if (!symcacheChecked) {
+				if (!symcache.empty() && std::filesystem::exists(symcache) && std::filesystem::is_directory(symcache)) {
+					symcacheValid = true;
+				}
+				symcacheChecked = true;
+			}
+
+			std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
+			if (symcacheValid) {
+				searchPaths.push_back(fmt::format(fmt::runtime("cache*{}"s), symcache.c_str()));
+			}
+
+			bool foundPDB = false;
+			for (const auto& path : searchPaths) {
+				std::wstring path_w = utf8_to_utf16(path);
+				wcsncpy(wszPath, path_w.c_str(), sizeof(wszPath) / sizeof(wchar_t));
+				hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
+				if (FAILED(hr)) {
+					continue;
+				}
+				foundPDB = true;
+				break;
+			}
+
+			if (!foundPDB) {
+				if (com_initialized_here)
+					CoUninitialize();
+				return result;
+			}
+
+			CComPtr<IDiaSession> pSession;
+			CComPtr<IDiaSymbol> globalSymbol;
+			if (FAILED(hr = pSource->openSession(&pSession))) {
+				if (com_initialized_here)
+					CoUninitialize();
+				return result;
+			}
+
+			if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
+				if (com_initialized_here)
+					CoUninitialize();
+				return result;
+			}
+
+			CComPtr<IDiaSymbol> funcSymbol;
+			if (FAILED(pSession->findSymbolByRVA(rva, SymTagFunction, &funcSymbol)) || !funcSymbol) {
+				if (com_initialized_here)
+					CoUninitialize();
+				return result;
+			}
+
+			CComPtr<IDiaEnumSymbols> enumSymbols;
+			if (FAILED(funcSymbol->findChildren(SymTagData, NULL, nsNone, &enumSymbols)) || !enumSymbols) {
+				if (com_initialized_here)
+					CoUninitialize();
+				return result;
+			}
+
+			std::vector<std::string> params;
+			params.reserve(8);
+
+			ULONG fetched = 0;
+			CComPtr<IDiaSymbol> child;
+			while (SUCCEEDED(enumSymbols->Next(1, &child, &fetched)) && fetched == 1) {
+				DWORD dataKind = 0;
+				if (FAILED(child->get_dataKind(&dataKind))) {
+					child.Release();
+					continue;
+				}
+				if (dataKind != DataIsParam) {
+					child.Release();
+					continue;
+				}
+
+				BSTR name{};
+				std::string paramName;
+				if (child->get_name(&name) == S_OK && name) {
+					paramName = ConvertBSTRToMBS(name);
+				}
+
+				CComPtr<IDiaSymbol> type;
+				child->get_type(&type);
+				const auto typeName = get_type_name(type);
+				if (!paramName.empty()) {
+					params.push_back(fmt::format("{}: {}", paramName, typeName));
+				} else {
+					params.push_back(typeName);
+				}
+
+				if (params.size() >= 8) {
+					params.push_back("...");
+					break;
+				}
+
+				child.Release();
+			}
+
+			if (!params.empty()) {
+				std::string joined;
+				for (std::size_t i = 0; i < params.size(); ++i) {
+					if (i > 0) {
+						joined += ", ";
+					}
+					joined += params[i];
+				}
+				result = joined;
 			}
 
 			if (com_initialized_here)

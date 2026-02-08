@@ -2,6 +2,9 @@
 
 #include "Crash/Introspection/Introspection.h"
 
+#include <Windows.h>
+#include <unordered_set>
+
 namespace Crash
 {
 	// Get register names and values from CONTEXT
@@ -310,6 +313,76 @@ namespace Crash
 		}
 
 		// Use shared printing logic
+		print_callstack_impl(a_log, frame_data, "\t"sv);
+	}
+
+	std::vector<const void*> scan_stack_for_frames(
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_frames)
+	{
+		std::vector<const void*> frames;
+		frames.reserve(std::min(a_max_frames, a_stack.size()));
+		std::unordered_set<const void*> seen;
+
+		for (const auto value : a_stack) {
+			if (value == 0) {
+				continue;
+			}
+			const auto addr = reinterpret_cast<const void*>(value);
+			const auto mod = Introspection::get_module_for_pointer(addr, a_modules);
+			if (!mod || !mod->in_range(addr)) {
+				continue;
+			}
+
+			MEMORY_BASIC_INFORMATION mbi{};
+			if (!VirtualQuery(addr, &mbi, sizeof(mbi))) {
+				continue;
+			}
+			const auto protect = mbi.Protect & 0xFF;
+			const bool executable = protect == PAGE_EXECUTE || protect == PAGE_EXECUTE_READ ||
+			                        protect == PAGE_EXECUTE_READWRITE || protect == PAGE_EXECUTE_WRITECOPY;
+			if (!executable) {
+				continue;
+			}
+			if (!seen.insert(addr).second) {
+				continue;
+			}
+
+			frames.push_back(addr);
+			if (frames.size() >= a_max_frames) {
+				break;
+			}
+		}
+
+		return frames;
+	}
+
+	void print_reconstructed_callstack(
+		spdlog::logger& a_log,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules)
+	{
+		a_log.critical("RECONSTRUCTED CALL STACK (STACK SCAN):"sv);
+
+		const auto frames = scan_stack_for_frames(a_stack, a_modules);
+		if (frames.empty()) {
+			a_log.critical("\tNone found"sv);
+			return;
+		}
+
+		std::vector<FrameData> frame_data;
+		frame_data.reserve(frames.size());
+		for (const auto addr : frames) {
+			try {
+				const auto mod = Introspection::get_module_for_pointer(addr, a_modules);
+				const auto frame_info = mod ? format_stack_frame(addr, mod) : ""s;
+				frame_data.push_back({ addr, mod, frame_info });
+			} catch (...) {
+				frame_data.push_back({ addr, nullptr, "[frame lookup error]"s });
+			}
+		}
+
 		print_callstack_impl(a_log, frame_data, "\t"sv);
 	}
 
