@@ -98,6 +98,10 @@ namespace Crash::Introspection
 
 	std::string simplify_for_relevant_objects(std::string_view full_analysis)
 	{
+		// NOTE: This function performs DISPLAY FORMATTING, not filtering.
+		// Filtering decisions are made by RelevantObjectsCollection::add() using was_introspected().
+		// This string inspection checks the FORMAT of the analysis output to determine how to display it.
+
 		// Check if this has filter output (detailed game object)
 		auto detail_pos = full_analysis.find("\n\t\t");
 		if (detail_pos == std::string_view::npos) {
