@@ -1843,9 +1843,8 @@ namespace Crash::Introspection
 		{
 			std::string result;
 			std::size_t first_seen_pos;
-			std::string first_seen_label;  // Store the label string to avoid recalculation issues across blocks.
-			                               // Must be initialized at the same time as first_seen_pos to ensure consistency.
-			bool is_game_object;  // True for polymorphic game objects, false for void* with module info
+			std::string first_seen_label;  // Store the label string to avoid recalculation issues across blocks. Must be initialized at the same time as first_seen_pos to ensure consistency.
+			bool is_game_object;           // True for polymorphic game objects, false for void* with module info
 		};
 		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
 		static std::mutex seen_objects_mutex;  // Protects seen_objects from race conditions
@@ -1856,6 +1855,7 @@ namespace Crash::Introspection
 
 		// Generate a label for the current position
 		// Uses label_generator if available, otherwise falls back to address string
+		// Uses thread_local current_analysis_pos so each thread gets its own position; overall thread-safety depends on label_generator
 		[[nodiscard]] inline std::string generate_current_label(const void* a_ptr)
 		{
 			return label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(a_ptr));
@@ -1945,7 +1945,7 @@ namespace Crash::Introspection
 					// Mark as NOT a game object (just a void* with module info)
 					{
 						std::lock_guard<std::mutex> lock(seen_objects_mutex);
-						seen_objects[_ptr] = { result, current_analysis_pos, generate_current_label(_ptr), false };
+						seen_objects.try_emplace(_ptr, result, current_analysis_pos, generate_current_label(_ptr), false);
 					}
 					return result;
 				} else {
