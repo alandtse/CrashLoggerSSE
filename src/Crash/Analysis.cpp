@@ -358,6 +358,52 @@ namespace Crash
 		return frames;
 	}
 
+	std::vector<HybridFrame> build_hybrid_callstack(
+		std::span<const void* const> a_probable_frames,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_total_frames,
+		std::size_t a_max_inserted_frames)
+	{
+		std::vector<HybridFrame> frames;
+		frames.reserve(a_max_total_frames);
+		std::unordered_set<const void*> seen;
+
+		auto push_frame = [&](const void* a_addr, HybridFrameSource a_source) {
+			if (!a_addr) {
+				return;
+			}
+			if (seen.insert(a_addr).second) {
+				frames.push_back({ a_addr, a_source });
+			}
+		};
+
+		for (const auto addr : a_probable_frames) {
+			if (frames.size() >= a_max_total_frames) {
+				return frames;
+			}
+			push_frame(addr, HybridFrameSource::Probable);
+		}
+
+		if (a_stack.empty()) {
+			return frames;
+		}
+
+		const auto reconstructed = scan_stack_for_frames(a_stack, a_modules, a_max_total_frames);
+		std::size_t inserted = 0;
+		for (const auto addr : reconstructed) {
+			if (frames.size() >= a_max_total_frames || inserted >= a_max_inserted_frames) {
+				break;
+			}
+			if (seen.insert(addr).second) {
+				frames.push_back({ addr, HybridFrameSource::StackScan });
+				++inserted;
+			}
+		}
+
+		return frames;
+	}
+
 	void print_reconstructed_callstack(
 		spdlog::logger& a_log,
 		std::span<const std::size_t> a_stack,
@@ -384,6 +430,70 @@ namespace Crash
 		}
 
 		print_callstack_impl(a_log, frame_data, "\t"sv);
+	}
+
+	void print_hybrid_callstack(
+		spdlog::logger& a_log,
+		std::span<const void* const> a_probable_frames,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_total_frames,
+		std::size_t a_max_inserted_frames)
+	{
+		a_log.critical("CALL STACK ([P]robable / [S]tack scan):"sv);
+
+		const auto frames = build_hybrid_callstack(
+			a_probable_frames,
+			a_stack,
+			a_modules,
+			a_max_total_frames,
+			a_max_inserted_frames);
+		if (frames.empty()) {
+			a_log.critical("\tNone found"sv);
+			return;
+		}
+
+		std::vector<FrameData> frame_data;
+		std::vector<char> source_tags;
+		frame_data.reserve(frames.size());
+		source_tags.reserve(frames.size());
+		for (const auto& frame : frames) {
+			try {
+				const auto mod = Introspection::get_module_for_pointer(frame.address, a_modules);
+				auto frame_info = mod ? format_stack_frame(frame.address, mod) : ""s;
+				frame_data.push_back({ frame.address, mod, std::move(frame_info) });
+				source_tags.push_back(frame.source == HybridFrameSource::Probable ? 'P' : 'S');
+			} catch (...) {
+				frame_data.push_back({ frame.address, nullptr, "[frame lookup error]"s });
+				source_tags.push_back('?');
+			}
+		}
+
+		std::size_t max_name_width = 0;
+		for (const auto& frame : frame_data) {
+			if (frame.module) {
+				max_name_width = std::max(max_name_width, frame.module->name().length());
+			}
+		}
+
+		const auto index_width = fmt::to_string(frame_data.size() - 1).length();
+		const auto format = std::string("\t") + "[{:>"s + fmt::to_string(index_width) + "}][{}] 0x{:012X} {:>"s +
+		                    fmt::to_string(max_name_width) + "}{}"s;
+
+		for (std::size_t i = 0; i < frame_data.size(); ++i) {
+			try {
+				const auto& frame = frame_data[i];
+				a_log.critical(
+					fmt::runtime(format),
+					i,
+					source_tags[i],
+					reinterpret_cast<std::uintptr_t>(frame.address),
+					(frame.module ? frame.module->name() : ""sv),
+					frame.frame_info);
+			} catch (...) {
+				a_log.critical("[Frame {} processing failed]", i);
+			}
+		}
 	}
 
 	// Minidump generation (shared between crash logs and thread dumps)

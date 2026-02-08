@@ -34,6 +34,9 @@ namespace Crash
 			std::span<const std::unique_ptr<Modules::Module>> a_modules,
 			std::size_t a_max_frames = 50) const;
 
+		[[nodiscard]] std::vector<const void*> get_frame_addresses(
+			std::size_t a_max_frames = 500) const;
+
 	private:
 		[[nodiscard]] static std::string get_size_string(std::size_t a_size);
 

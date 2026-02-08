@@ -114,11 +114,40 @@ namespace Crash
 		std::span<const module_pointer> a_modules,
 		std::size_t a_max_frames = 128);
 
+	// Build a hybrid callstack from probable frames + stack scan results
+	enum class HybridFrameSource
+	{
+		Probable,
+		StackScan
+	};
+
+	struct HybridFrame
+	{
+		const void* address;
+		HybridFrameSource source;
+	};
+
+	[[nodiscard]] std::vector<HybridFrame> build_hybrid_callstack(
+		std::span<const void* const> a_probable_frames,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_total_frames = 128,
+		std::size_t a_max_inserted_frames = 64);
+
 	// Print a reconstructed callstack from a stack scan
 	void print_reconstructed_callstack(
 		spdlog::logger& a_log,
 		std::span<const std::size_t> a_stack,
 		std::span<const module_pointer> a_modules);
+
+	// Print a hybrid callstack (probable frames + stack scan)
+	void print_hybrid_callstack(
+		spdlog::logger& a_log,
+		std::span<const void* const> a_probable_frames,
+		std::span<const std::size_t> a_stack,
+		std::span<const module_pointer> a_modules,
+		std::size_t a_max_total_frames = 128,
+		std::size_t a_max_inserted_frames = 64);
 
 	// Minidump generation (shared between crash logs and thread dumps)
 

@@ -195,6 +195,23 @@ namespace Crash
 		return results;
 	}
 
+	std::vector<const void*> Callstack::get_frame_addresses(std::size_t a_max_frames) const
+	{
+		std::vector<const void*> results;
+		const auto frame_count = std::min(_frames.size(), a_max_frames);
+		results.reserve(frame_count);
+
+		for (std::size_t i = 0; i < frame_count; ++i) {
+			try {
+				results.push_back(_frames[i].address());
+			} catch (...) {
+				results.push_back(nullptr);
+			}
+		}
+
+		return results;
+	}
+
 	std::string Callstack::get_size_string(std::size_t a_size)
 	{
 		return fmt::to_string(fmt::to_string(a_size - 1).length());
@@ -1423,13 +1440,22 @@ namespace Crash
 
 				print([&]() {
 					try {
-						if (callstack) {
-							callstack->print(*log, cmodules);
-						} else {
-							// Construct it now if we couldn't earlier
-							const Callstack cs{ *a_exception->ExceptionRecord };
-							cs.print(*log, cmodules);
+						const Callstack* callstack_ptr = callstack ? &(*callstack) : nullptr;
+						Callstack fallback{ *a_exception->ExceptionRecord };
+						if (!callstack_ptr) {
+							callstack_ptr = &fallback;
 						}
+
+						const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
+						if (!stack_opt) {
+							log->critical("CALL STACK (HYBRID):");
+							log->critical("\tFAILED TO READ TIB");
+							callstack_ptr->print(*log, cmodules);
+							return;
+						}
+
+						const auto probable_frames = callstack_ptr->get_frame_addresses();
+						print_hybrid_callstack(*log, probable_frames, *stack_opt, cmodules);
 					} catch (const std::bad_alloc&) {
 						log->critical("CALLSTACK ANALYSIS FAILED: Out of memory");
 					} catch (...) {
@@ -1443,18 +1469,7 @@ namespace Crash
 						}
 					}
 				},
-					"probable_callstack");
-
-				print([&]() {
-					const auto stack_opt = get_stack_info(*a_exception->ContextRecord);
-					if (!stack_opt) {
-						log->critical("RECONSTRUCTED CALL STACK (STACK SCAN):");
-						log->critical("\tFAILED TO READ TIB");
-						return;
-					}
-					print_reconstructed_callstack(*log, *stack_opt, cmodules);
-				},
-					"reconstructed_callstack");
+					"hybrid_callstack");
 
 				// Analyze registers and stack first, then backfill, then print
 				try {
