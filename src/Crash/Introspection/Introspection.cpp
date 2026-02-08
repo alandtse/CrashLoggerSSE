@@ -1843,6 +1843,7 @@ namespace Crash::Introspection
 		{
 			std::string result;
 			std::size_t first_seen_pos;
+			std::string first_seen_label;  // Store the label string to avoid recalculation issues across blocks
 			bool is_game_object;  // True for polymorphic game objects, false for void* with module info
 		};
 		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
@@ -1936,7 +1937,8 @@ namespace Crash::Introspection
 					// Mark as NOT a game object (just a void* with module info)
 					{
 						std::lock_guard<std::mutex> lock(seen_objects_mutex);
-						seen_objects[_ptr] = { result, current_analysis_pos, false };
+						std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						seen_objects[_ptr] = { result, current_analysis_pos, label, false };
 					}
 					return result;
 				} else {
@@ -1973,7 +1975,8 @@ namespace Crash::Introspection
 					// Use check-and-reserve pattern
 					{
 						std::lock_guard<std::mutex> lock(seen_objects_mutex);
-						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, is_game_obj });
+						std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, label, is_game_obj });
 
 						if (!inserted) {
 							// If we're at the same position where it was first seen, return the stored result
@@ -1982,8 +1985,7 @@ namespace Crash::Introspection
 							}
 
 							// Object already being processed or completed - return cross-reference
-							std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-							return fmt::format("{} See {}", result, location);
+							return fmt::format("{} See {}", result, it->second.first_seen_label);
 						}
 						// else: we successfully stored this object, return the result
 					}
@@ -2020,7 +2022,8 @@ namespace Crash::Introspection
 				// Use check-and-reserve pattern to prevent re-entrancy
 				{
 					std::lock_guard<std::mutex> lock(seen_objects_mutex);
-					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, true });
+					std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, label, true });
 					was_inserted = inserted;
 					reserved_pos = current_analysis_pos;
 
@@ -2034,15 +2037,14 @@ namespace Crash::Introspection
 						}
 
 						// Different position - generate cross-reference
-						std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
 						auto poly_name = _poly.name();
 
 						if (it->second.result.empty()) {
 							// Being processed by another thread or recursively - return placeholder
-							return fmt::format("({}) See {}", poly_name, location);
+							return fmt::format("({}) See {}", poly_name, it->second.first_seen_label);
 						} else {
 							// Already completed - return cross-reference
-							return fmt::format("{} See {}", poly_name, location);
+							return fmt::format("{} See {}", poly_name, it->second.first_seen_label);
 						}
 					}
 					// else: we successfully reserved this slot, continue with introspection
