@@ -1856,7 +1856,7 @@ namespace Crash::Introspection
 
 		// Generate a label for the current position
 		// Uses label_generator if available, otherwise falls back to address string
-		[[nodiscard]] inline std::string generate_current_label(const void* a_ptr) noexcept
+		[[nodiscard]] inline std::string generate_current_label(const void* a_ptr)
 		{
 			return label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(a_ptr));
 		}
