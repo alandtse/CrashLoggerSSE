@@ -1843,12 +1843,34 @@ namespace Crash::Introspection
 		{
 			std::string result;
 			std::size_t first_seen_pos;
+			bool is_game_object;  // True for polymorphic game objects, false for void* with module info
 		};
 		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
+		static std::mutex seen_objects_mutex;  // Protects seen_objects from race conditions
 		static std::function<std::string(size_t)> label_generator;
 		static thread_local std::size_t current_analysis_pos = 0;
 		static std::size_t total_backfill_count = 0;
 		static bool backfill_logged_this_crash = false;
+
+		// Check if a demangled type name is a game-relevant object
+		// Returns false for STL types, internal implementation classes, etc.
+		[[nodiscard]] bool is_game_relevant_type(std::string_view demangled) noexcept
+		{
+			// Filter out STL and internal implementation types
+			// Check for std:: prefix or common STL internal patterns
+			if (demangled.starts_with("std::") ||
+				demangled.find("std::_") != std::string_view::npos ||
+				demangled.starts_with("_Ref_count")) {
+				return false;
+			}
+			if (demangled.starts_with("_")) {
+				// Internal implementation classes
+				return false;
+			}
+			// Game-relevant types typically start with known prefixes
+			// RE::, BSScript::, hk, Ni, etc.
+			return true;
+		}
 		class Integer
 		{
 		public:
@@ -1883,9 +1905,12 @@ namespace Crash::Introspection
 			[[nodiscard]] std::string name() const
 			{
 				// Check if this address was already introspected as a known object
-				auto it = seen_objects.find(_ptr);
-				if (it != seen_objects.end()) {
-					return it->second.result;  // Return the full object information
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto it = seen_objects.find(_ptr);
+					if (it != seen_objects.end() && !it->second.result.empty()) {
+						return it->second.result;  // Return the full object information
+					}
 				}
 
 				if (_module) {
@@ -1908,7 +1933,11 @@ namespace Crash::Introspection
 							assembly);
 
 					// Store in seen_objects to prevent duplicate introspection
-					seen_objects[_ptr] = { result, current_analysis_pos };
+					// Mark as NOT a game object (just a void* with module info)
+					{
+						std::lock_guard<std::mutex> lock(seen_objects_mutex);
+						seen_objects[_ptr] = { result, current_analysis_pos, false };
+					}
 					return result;
 				} else {
 					return "(void*)"s;
@@ -1938,15 +1967,26 @@ namespace Crash::Introspection
 
 				// Check if this address was already introspected
 				if (_ptr) {
-					auto it = seen_objects.find(_ptr);
-					if (it != seen_objects.end()) {
-						// Include type info in the cross-reference with location
-						std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-						return fmt::format("{} See {}", result, location);
-					}
+					// Determine if this is a game object before acquiring the lock
+					bool is_game_obj = is_game_relevant_type(demangled);
 
-					// Store type info in seen_objects for future references
-					seen_objects[_ptr] = { result, current_analysis_pos };
+					// Use check-and-reserve pattern
+					{
+						std::lock_guard<std::mutex> lock(seen_objects_mutex);
+						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, is_game_obj });
+
+						if (!inserted) {
+							// If we're at the same position where it was first seen, return the stored result
+							if (current_analysis_pos == it->second.first_seen_pos) {
+								return it->second.result;
+							}
+
+							// Object already being processed or completed - return cross-reference
+							std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+							return fmt::format("{} See {}", result, location);
+						}
+						// else: we successfully stored this object, return the result
+					}
 				}
 
 				return result;
@@ -1974,11 +2014,38 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
-				auto it = seen_objects.find(_ptr);
-				if (it != seen_objects.end()) {
-					// Include type info in the cross-reference with location
-					std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-					return fmt::format("{} See {}", _poly.name(), location);
+				std::size_t reserved_pos = 0;
+				bool was_inserted = false;
+
+				// Use check-and-reserve pattern to prevent re-entrancy
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, true });
+					was_inserted = inserted;
+					reserved_pos = current_analysis_pos;
+
+					if (!inserted) {
+						// Object already exists (either being processed or completed)
+
+						// If we're at the same position where it was first seen, return the stored result
+						// (This happens on the second analysis pass for printing)
+						if (current_analysis_pos == it->second.first_seen_pos && !it->second.result.empty()) {
+							return it->second.result;
+						}
+
+						// Different position - generate cross-reference
+						std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						auto poly_name = _poly.name();
+
+						if (it->second.result.empty()) {
+							// Being processed by another thread or recursively - return placeholder
+							return fmt::format("({}) See {}", poly_name, location);
+						} else {
+							// Already completed - return cross-reference
+							return fmt::format("{} See {}", poly_name, location);
+						}
+					}
+					// else: we successfully reserved this slot, continue with introspection
 				}
 
 				auto result = _poly.name();
@@ -2017,8 +2084,27 @@ namespace Crash::Introspection
 					}
 				}
 
-				// Store the complete result for backfilling void* references
-				seen_objects[_ptr] = { result, current_analysis_pos };
+				// Check if this is a game-relevant type (filter out STL types)
+				// Extract the type name from result: "(TypeName*)"
+				std::string_view result_view(result);
+				std::size_t start = result_view.find('(');
+				std::size_t end = result_view.find("*)");
+				bool is_game_obj = true;  // Default to true for F4 types
+
+				if (start != std::string_view::npos && end != std::string_view::npos && end > start) {
+					std::string_view type_name = result_view.substr(start + 1, end - start - 1);
+					is_game_obj = is_game_relevant_type(type_name);
+				}
+
+				// Update the reserved slot with the complete result
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto it = seen_objects.find(_ptr);
+					if (it != seen_objects.end()) {
+						it->second.result = result;
+						it->second.is_game_object = is_game_obj;
+					}
+				}
 
 				return result;
 			}
@@ -2209,16 +2295,20 @@ namespace Crash::Introspection
 		}
 	}
 
+	void reset_analysis_state() noexcept
+	{
+		std::lock_guard<std::mutex> lock(detail::seen_objects_mutex);
+		detail::seen_objects.clear();
+		detail::backfill_logged_this_crash = false;
+		detail::total_backfill_count = 0;
+	}
+
 	std::vector<std::string> analyze_data(
 		std::span<const std::size_t> a_data,
 		std::span<const module_pointer> a_modules,
 		std::function<std::string(size_t)> a_label_generator)
 	{
-		detail::seen_objects.clear();
 		detail::label_generator = a_label_generator;
-		// Reset backfill logging state for new crash
-		detail::backfill_logged_this_crash = false;
-		detail::total_backfill_count = 0;
 		std::vector<std::string> results;
 		results.resize(a_data.size());
 		std::for_each(
@@ -2266,8 +2356,9 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 
 bool Crash::Introspection::was_introspected(const void* a_ptr) noexcept
 {
-	// Return true if the object was introspected (stored in seen_objects)
-	// This includes F4Polymorphic objects with filter output, simple Polymorphic objects,
-	// and Pointer objects with module info
-	return detail::seen_objects.find(a_ptr) != detail::seen_objects.end();
+	// Return true ONLY if the object is a game object (polymorphic type)
+	// Exclude void* pointers with module info (those are not game objects)
+	std::lock_guard<std::mutex> lock(detail::seen_objects_mutex);
+	auto it = detail::seen_objects.find(a_ptr);
+	return it != detail::seen_objects.end() && it->second.is_game_object;
 }

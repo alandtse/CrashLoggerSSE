@@ -265,6 +265,11 @@ namespace Crash
 					return;
 				}
 
+				// Skip cross-references ("See RSP+XX") - we only want the first full occurrence
+				if (full_analysis.find(" See ") != std::string::npos) {
+					return;
+				}
+
 				// Keep the closest occurrence (smallest distance) for each unique address
 				auto it = objects.find(address);
 				if (it == objects.end()) {
@@ -1162,6 +1167,9 @@ namespace Crash
 				}
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules, throwLocation); }, "print_exception");
+
+				// Reset introspection state once per crash (before all analysis)
+				Introspection::reset_analysis_state();
 
 				// Collect relevant objects from registers and stack (fast pass, no printing)
 				try {

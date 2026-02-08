@@ -194,12 +194,9 @@ namespace Crash::Introspection
 			return result;
 		}
 
-		// Default case: TESForm-like objects
+		// Default case: TESForm-like objects and other detailed objects
 		// Format: TypeName "Name" [0xFormID] (File.esp)
-		if (best_name.empty() && form_id.empty() && file.empty()) {
-			return "";  // Not enough useful info
-		}
-
+		// If no standard fields but has filter output, return type name to show it was introspected
 		std::string result = type_name;
 
 		if (!best_name.empty()) {
