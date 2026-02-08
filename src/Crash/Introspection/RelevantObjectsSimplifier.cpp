@@ -98,10 +98,16 @@ namespace Crash::Introspection
 
 	std::string simplify_for_relevant_objects(std::string_view full_analysis)
 	{
-		// Check if this has filter output
+		// NOTE: This function performs DISPLAY FORMATTING, not filtering.
+		// Filtering decisions are made by RelevantObjectsCollection::add() using was_introspected().
+		// This string inspection checks the FORMAT of the analysis output to determine how to display it.
+
+		// Check if this has filter output (detailed game object)
 		auto detail_pos = full_analysis.find("\n\t\t");
 		if (detail_pos == std::string_view::npos) {
-			return "";
+			// No filter output - return the analysis as-is (e.g., simple polymorphic pointers like "(NiCamera*)")
+			// This ensures that introspected objects without detailed properties are still displayed
+			return std::string(full_analysis);
 		}
 
 		// Extract type name
@@ -192,12 +198,9 @@ namespace Crash::Introspection
 			return result;
 		}
 
-		// Default case: TESForm-like objects
+		// Default case: TESForm-like objects and other detailed objects
 		// Format: TypeName "Name" [0xFormID] (File.esp)
-		if (best_name.empty() && form_id.empty() && file.empty()) {
-			return "";  // Not enough useful info
-		}
-
+		// If no standard fields but has filter output, return type name to show it was introspected
 		std::string result = type_name;
 
 		if (!best_name.empty()) {

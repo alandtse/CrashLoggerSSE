@@ -1839,10 +1839,38 @@ namespace Crash::Introspection
 
 	namespace detail
 	{
-		static std::unordered_map<const void*, std::string> seen_objects;
+		struct SeenObjectInfo
+		{
+			std::string result;
+			std::size_t first_seen_pos;
+			bool is_game_object;  // True for polymorphic game objects, false for void* with module info
+		};
+		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
+		static std::mutex seen_objects_mutex;  // Protects seen_objects from race conditions
 		static std::function<std::string(size_t)> label_generator;
+		static thread_local std::size_t current_analysis_pos = 0;
 		static std::size_t total_backfill_count = 0;
 		static bool backfill_logged_this_crash = false;
+
+		// Check if a demangled type name is a game-relevant object
+		// Returns false for STL types, internal implementation classes, etc.
+		[[nodiscard]] bool is_game_relevant_type(std::string_view demangled) noexcept
+		{
+			// Filter out STL and internal implementation types
+			// Check for std:: prefix or common STL internal patterns
+			if (demangled.starts_with("std::") ||
+				demangled.find("std::_") != std::string_view::npos ||
+				demangled.starts_with("_Ref_count")) {
+				return false;
+			}
+			if (demangled.starts_with("_")) {
+				// Internal implementation classes
+				return false;
+			}
+			// Game-relevant types typically start with known prefixes
+			// RE::, BSScript::, hk, Ni, etc.
+			return true;
+		}
 		class Integer
 		{
 		public:
@@ -1877,27 +1905,40 @@ namespace Crash::Introspection
 			[[nodiscard]] std::string name() const
 			{
 				// Check if this address was already introspected as a known object
-				auto it = seen_objects.find(_ptr);
-				if (it != seen_objects.end()) {
-					return it->second;  // Return the full object information
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto it = seen_objects.find(_ptr);
+					if (it != seen_objects.end() && !it->second.result.empty()) {
+						return it->second.result;  // Return the full object information
+					}
 				}
 
 				if (_module) {
 					const auto address = reinterpret_cast<std::uintptr_t>(_ptr);
 					const auto pdbDetails = Crash::PDB::pdb_details(_module->path(), address - _module->address());
 					const auto assembly = _module->assembly((const void*)address);
+					std::string result;
 					if (!pdbDetails.empty())
-						return fmt::format(
+						result = fmt::format(
 							"(void* -> {}+{:07X}\t{} | {})"sv,
 							_module->name(),
 							address - _module->address(),
 							assembly,
 							pdbDetails);
-					return fmt::format(
-						"(void* -> {}+{:07X}\t{})"sv,
-						_module->name(),
-						address - _module->address(),
-						assembly);
+					else
+						result = fmt::format(
+							"(void* -> {}+{:07X}\t{})"sv,
+							_module->name(),
+							address - _module->address(),
+							assembly);
+
+					// Store in seen_objects to prevent duplicate introspection
+					// Mark as NOT a game object (just a void* with module info)
+					{
+						std::lock_guard<std::mutex> lock(seen_objects_mutex);
+						seen_objects[_ptr] = { result, current_analysis_pos, false };
+					}
+					return result;
 				} else {
 					return "(void*)"s;
 				}
@@ -1911,8 +1952,9 @@ namespace Crash::Introspection
 		class Polymorphic
 		{
 		public:
-			explicit Polymorphic(std::string_view a_mangled) noexcept :
-				_mangled{ a_mangled }
+			explicit Polymorphic(std::string_view a_mangled, const void* a_ptr = nullptr) noexcept :
+				_mangled{ a_mangled },
+				_ptr{ a_ptr }
 			{
 				// NOLINTNEXTLINE(readability-simplify-subscript-expr)
 				assert(_mangled.size() > 1 && _mangled.data()[_mangled.size()] == '\0');
@@ -1921,11 +1963,38 @@ namespace Crash::Introspection
 			[[nodiscard]] std::string name() const
 			{
 				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
-				return fmt::format("({}*)"sv, demangled);
+				auto result = fmt::format("({}*)"sv, demangled);
+
+				// Check if this address was already introspected
+				if (_ptr) {
+					// Determine if this is a game object before acquiring the lock
+					bool is_game_obj = is_game_relevant_type(demangled);
+
+					// Use check-and-reserve pattern
+					{
+						std::lock_guard<std::mutex> lock(seen_objects_mutex);
+						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, is_game_obj });
+
+						if (!inserted) {
+							// If we're at the same position where it was first seen, return the stored result
+							if (current_analysis_pos == it->second.first_seen_pos) {
+								return it->second.result;
+							}
+
+							// Object already being processed or completed - return cross-reference
+							std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+							return fmt::format("{} See {}", result, location);
+						}
+						// else: we successfully stored this object, return the result
+					}
+				}
+
+				return result;
 			}
 
 		private:
 			std::string_view _mangled;
+			const void* _ptr{ nullptr };
 		};
 
 		class F4Polymorphic
@@ -1945,9 +2014,38 @@ namespace Crash::Introspection
 
 			[[nodiscard]] std::string name() const
 			{
-				auto it = seen_objects.find(_ptr);
-				if (it != seen_objects.end()) {
-					return fmt::format("{} See 0x{:X}", _poly.name(), reinterpret_cast<std::uintptr_t>(_ptr));
+				std::size_t reserved_pos = 0;
+				bool was_inserted = false;
+
+				// Use check-and-reserve pattern to prevent re-entrancy
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, true });
+					was_inserted = inserted;
+					reserved_pos = current_analysis_pos;
+
+					if (!inserted) {
+						// Object already exists (either being processed or completed)
+
+						// If we're at the same position where it was first seen, return the stored result
+						// (This happens on the second analysis pass for printing)
+						if (current_analysis_pos == it->second.first_seen_pos && !it->second.result.empty()) {
+							return it->second.result;
+						}
+
+						// Different position - generate cross-reference
+						std::string location = label_generator ? label_generator(it->second.first_seen_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
+						auto poly_name = _poly.name();
+
+						if (it->second.result.empty()) {
+							// Being processed by another thread or recursively - return placeholder
+							return fmt::format("({}) See {}", poly_name, location);
+						} else {
+							// Already completed - return cross-reference
+							return fmt::format("{} See {}", poly_name, location);
+						}
+					}
+					// else: we successfully reserved this slot, continue with introspection
 				}
 
 				auto result = _poly.name();
@@ -1986,8 +2084,27 @@ namespace Crash::Introspection
 					}
 				}
 
-				// Store the complete result for backfilling void* references
-				seen_objects[_ptr] = result;
+				// Check if this is a game-relevant type (filter out STL types)
+				// Extract the type name from result: "(TypeName*)"
+				std::string_view result_view(result);
+				std::size_t start = result_view.find('(');
+				std::size_t end = result_view.find("*)");
+				bool is_game_obj = true;  // Default to true for F4 types
+
+				if (start != std::string_view::npos && end != std::string_view::npos && end > start) {
+					std::string_view type_name = result_view.substr(start + 1, end - start - 1);
+					is_game_obj = is_game_relevant_type(type_name);
+				}
+
+				// Update the reserved slot with the complete result
+				{
+					std::lock_guard<std::mutex> lock(seen_objects_mutex);
+					auto it = seen_objects.find(_ptr);
+					if (it != seen_objects.end()) {
+						it->second.result = result;
+						it->second.is_game_object = is_game_obj;
+					}
+				}
 
 				return result;
 			}
@@ -2102,7 +2219,7 @@ namespace Crash::Introspection
 				if (_stricmp(mod->name().data(), util::module_name().c_str()) == 0) {
 					return make_result<F4Polymorphic>(typeDesc->mangled_name(), col, a_ptr);
 				} else {
-					return make_result<Polymorphic>(typeDesc->mangled_name());
+					return make_result<Polymorphic>(typeDesc->mangled_name(), a_ptr);
 				}
 			} catch (...) {
 				return std::nullopt;
@@ -2178,16 +2295,20 @@ namespace Crash::Introspection
 		}
 	}
 
+	void reset_analysis_state() noexcept
+	{
+		std::lock_guard<std::mutex> lock(detail::seen_objects_mutex);
+		detail::seen_objects.clear();
+		detail::backfill_logged_this_crash = false;
+		detail::total_backfill_count = 0;
+	}
+
 	std::vector<std::string> analyze_data(
 		std::span<const std::size_t> a_data,
 		std::span<const module_pointer> a_modules,
 		std::function<std::string(size_t)> a_label_generator)
 	{
-		detail::seen_objects.clear();
 		detail::label_generator = a_label_generator;
-		// Reset backfill logging state for new crash
-		detail::backfill_logged_this_crash = false;
-		detail::total_backfill_count = 0;
 		std::vector<std::string> results;
 		results.resize(a_data.size());
 		std::for_each(
@@ -2195,8 +2316,9 @@ namespace Crash::Introspection
 			a_data.begin(),
 			a_data.end(),
 			[&](auto& a_val) {
-				const auto result = detail::analyze_integer(a_val, a_modules);
 				const auto pos = std::addressof(a_val) - a_data.data();
+				detail::current_analysis_pos = static_cast<std::size_t>(pos);
+				const auto result = detail::analyze_integer(a_val, a_modules);
 				results[pos] = std::visit(
 					[](const auto& a_analysis) { return a_analysis.name(); },
 					result);
@@ -2219,7 +2341,7 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 			auto it = detail::seen_objects.find(reinterpret_cast<const void*>(addr));
 			if (it != detail::seen_objects.end()) {
 				// Replace with full object information
-				result = it->second;
+				result = it->second.result;
 				++detail::total_backfill_count;
 			}
 		}
@@ -2230,4 +2352,13 @@ void Crash::Introspection::backfill_void_pointers(std::vector<std::string>& a_re
 		logger::info("Backfilled {} void* pointers with known object information across all analysis", detail::total_backfill_count);
 		detail::backfill_logged_this_crash = true;
 	}
+}
+
+bool Crash::Introspection::was_introspected(const void* a_ptr) noexcept
+{
+	// Return true ONLY if the object is a game object (polymorphic type)
+	// Exclude void* pointers with module info (those are not game objects)
+	std::lock_guard<std::mutex> lock(detail::seen_objects_mutex);
+	auto it = detail::seen_objects.find(a_ptr);
+	return it != detail::seen_objects.end() && it->second.is_game_object;
 }

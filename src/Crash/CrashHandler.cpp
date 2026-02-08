@@ -256,13 +256,30 @@ namespace Crash
 
 			void add(std::size_t address, std::string full_analysis, std::string location, std::size_t distance)
 			{
-				// Only add if address is valid and we haven't seen it yet
-				if (address != 0 && objects.find(address) == objects.end()) {
-					// Check if this analysis has filter output (detailed game object)
-					if (full_analysis.find("\n\t\t") != std::string::npos) {
-						objects[address] = { address, std::move(full_analysis), std::move(location), distance };
-					}
+				if (address == 0) {
+					return;
 				}
+
+				// Check if this address has game introspection data
+				if (!Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
+					return;
+				}
+
+				// Skip cross-references ("See RSP+XX") - we only want the first full occurrence
+				if (full_analysis.find(" See ") != std::string::npos) {
+					return;
+				}
+
+				// Keep the closest occurrence (smallest distance) for each unique address
+				auto it = objects.find(address);
+				if (it == objects.end()) {
+					// First time seeing this address
+					objects[address] = { address, std::move(full_analysis), std::move(location), distance };
+				} else if (distance < it->second.distance) {
+					// Found a closer occurrence, replace it
+					it->second = { address, std::move(full_analysis), std::move(location), distance };
+				}
+				// Otherwise, keep the existing closer occurrence
 			}
 
 			std::vector<RelevantObject> get_sorted() const
@@ -1150,6 +1167,9 @@ namespace Crash
 				}
 
 				print([&]() { print_exception(*log, *a_exception->ExceptionRecord, cmodules, throwLocation); }, "print_exception");
+
+				// Reset introspection state once per crash (before all analysis)
+				Introspection::reset_analysis_state();
 
 				// Collect relevant objects from registers and stack (fast pass, no printing)
 				try {
