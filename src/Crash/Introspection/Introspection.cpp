@@ -1856,6 +1856,7 @@ namespace Crash::Introspection
 
 		// Generate a label for the current position
 		// Uses label_generator if available, otherwise falls back to address string
+		// Thread-safe: Reads thread_local current_analysis_pos, so each thread gets its own position
 		[[nodiscard]] inline std::string generate_current_label(const void* a_ptr)
 		{
 			return label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(a_ptr));
