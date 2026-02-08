@@ -1843,7 +1843,8 @@ namespace Crash::Introspection
 		{
 			std::string result;
 			std::size_t first_seen_pos;
-			std::string first_seen_label;  // Store the label string to avoid recalculation issues across blocks
+			std::string first_seen_label;  // Store the label string to avoid recalculation issues across blocks.
+			                               // Must be initialized at the same time as first_seen_pos to ensure consistency.
 			bool is_game_object;  // True for polymorphic game objects, false for void* with module info
 		};
 		static std::unordered_map<const void*, SeenObjectInfo> seen_objects;
@@ -1852,6 +1853,13 @@ namespace Crash::Introspection
 		static thread_local std::size_t current_analysis_pos = 0;
 		static std::size_t total_backfill_count = 0;
 		static bool backfill_logged_this_crash = false;
+
+		// Generate a label for the current position
+		// Uses label_generator if available, otherwise falls back to address string
+		[[nodiscard]] inline std::string generate_current_label(const void* a_ptr) noexcept
+		{
+			return label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(a_ptr));
+		}
 
 		// Check if a demangled type name is a game-relevant object
 		// Returns false for STL types, internal implementation classes, etc.
@@ -1937,8 +1945,7 @@ namespace Crash::Introspection
 					// Mark as NOT a game object (just a void* with module info)
 					{
 						std::lock_guard<std::mutex> lock(seen_objects_mutex);
-						std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-						seen_objects[_ptr] = { result, current_analysis_pos, label, false };
+						seen_objects[_ptr] = { result, current_analysis_pos, generate_current_label(_ptr), false };
 					}
 					return result;
 				} else {
@@ -1975,8 +1982,7 @@ namespace Crash::Introspection
 					// Use check-and-reserve pattern
 					{
 						std::lock_guard<std::mutex> lock(seen_objects_mutex);
-						std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, label, is_game_obj });
+						auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ result, current_analysis_pos, generate_current_label(_ptr), is_game_obj });
 
 						if (!inserted) {
 							// If we're at the same position where it was first seen, return the stored result
@@ -2022,8 +2028,7 @@ namespace Crash::Introspection
 				// Use check-and-reserve pattern to prevent re-entrancy
 				{
 					std::lock_guard<std::mutex> lock(seen_objects_mutex);
-					std::string label = label_generator ? label_generator(current_analysis_pos) : fmt::format("0x{:X}", reinterpret_cast<std::uintptr_t>(_ptr));
-					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, label, true });
+					auto [it, inserted] = seen_objects.try_emplace(_ptr, SeenObjectInfo{ "", current_analysis_pos, generate_current_label(_ptr), true });
 					was_inserted = inserted;
 					reserved_pos = current_analysis_pos;
 
