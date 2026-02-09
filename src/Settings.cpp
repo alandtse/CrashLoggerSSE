@@ -61,6 +61,22 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	std::string hotkeyStr;
 	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Default: 17, 16, 123\n;VK code reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes");
 
+	// Heap analysis section header
+	a_ini.SetValue(section, nullptr, nullptr,
+		"\n; ============================================================================\n"
+		"; Heap Analysis Settings (Memory Allocation Detection)\n"
+		"; ============================================================================\n"
+		"; WARNING: Heap analysis can be VERY SLOW (10+ seconds) in large modded games.\n"
+		"; It attempts to identify if crash-related pointers are heap allocations by\n"
+		"; walking through all memory allocations. Disabled by default due to performance.\n"
+		"; Only enable if specifically needed for debugging memory-related crashes.\n"
+		"; ============================================================================",
+		false);
+
+	get_value(a_ini, enableHeapAnalysis, section, "Enable Heap Analysis", ";Enable heap allocation analysis for crash pointers. Default: false\n;WARNING: Can cause 10+ second delays in crash log generation. Only enable if needed.");
+	get_value(a_ini, maxHeapsToCheck, section, "Max Heaps To Check", ";Maximum number of heaps to check (process has many heaps). Default: 1\n;1 = only check process heap (fastest, limited coverage)\n;2-5 = check multiple heaps (slower, better coverage)\n;0 = check all heaps (VERY SLOW, not recommended)");
+	get_value(a_ini, maxHeapIterationsPerHeap, section, "Max Heap Iterations Per Heap", ";Maximum allocations to check per heap before giving up. Default: 1000\n;Lower = faster but may miss allocations. Higher = slower but more thorough.\n;0 = unlimited (VERY SLOW, not recommended)");
+
 	// Advanced section header
 	a_ini.SetValue(section, nullptr, nullptr,
 		"\n; ============================================================================\n"

@@ -1,5 +1,6 @@
 #include "Crash/Introspection/Introspection.h"
 
+#include "Crash/Introspection/HeapAnalysis.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
@@ -2241,13 +2242,34 @@ namespace Crash::Introspection
 			std::string_view _str;
 		};
 
+		class HeapPointer
+		{
+		public:
+			HeapPointer(const void* a_ptr, const Heap::HeapInfo& a_info) noexcept :
+				_ptr(a_ptr),
+				_info(a_info)
+			{}
+
+			[[nodiscard]] std::string name() const
+			{
+				return fmt::format("(void*) 0x{:012X} [Heap: {}]"sv,
+					reinterpret_cast<std::uintptr_t>(_ptr),
+					Heap::format_heap_info(_info));
+			}
+
+		private:
+			const void* _ptr;
+			Heap::HeapInfo _info;
+		};
+
 		using analysis_result = std::variant<
 			Integer,
 			FormID,
 			Pointer,
 			Polymorphic,
 			F4Polymorphic,
-			String>;
+			String,
+			HeapPointer>;
 
 		template <class T, class... Args>
 		[[nodiscard]] analysis_result make_result(Args&&... a_args) noexcept(
@@ -2344,6 +2366,11 @@ namespace Crash::Introspection
 
 			if (auto str = analyze_string(a_ptr); str) {
 				return *std::move(str);
+			}
+
+			// Check if pointer is in a heap allocation
+			if (auto heap_info = Heap::analyze_heap_pointer(a_ptr); heap_info) {
+				return make_result<HeapPointer>(a_ptr, *heap_info);
 			}
 
 			return make_result<Pointer>(a_ptr, a_modules);
