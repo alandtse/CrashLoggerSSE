@@ -409,57 +409,83 @@ namespace Crash
 		struct ProblematicDLL
 		{
 			std::string_view pattern;
+			std::wstring pattern_lower;  // Pre-computed lowercase for comparison
 			std::string_view name;
 			std::string_view warning;
 			std::string_view help_url;
 		};
 
+		// Pre-compute lowercase patterns for efficiency
+		auto make_dll_entry = [](std::string_view pattern, std::string_view name, 
+								  std::string_view warning, std::string_view help_url) {
+			std::wstring pattern_lower;
+			pattern_lower.reserve(pattern.length());
+			for (char c : pattern) {
+				pattern_lower += static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c)));
+			}
+			return ProblematicDLL{ pattern, std::move(pattern_lower), name, warning, help_url };
+		};
+
 		const std::vector<ProblematicDLL> problematic_dlls = {
-			{ "SkyrimCrashGuard.dll",
+			make_dll_entry("SkyrimCrashGuard.dll",
 				"SkyrimCrashGuard",
 				"SkyrimCrashGuard attempts to recover from crashes by performing unsafe operations.\n"
 				"This can corrupt game state and make crash logs unreliable or misleading.\n"
 				"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.",
-				"https://www.nexusmods.com/skyrimspecialedition/mods/172082" }
+				"https://www.nexusmods.com/skyrimspecialedition/mods/172082")
 		};
 
 		// Get list of loaded modules
 		const auto proc = ::GetCurrentProcess();
 		std::vector<::HMODULE> modules;
-		std::uint32_t needed = 0;
-		do {
+		std::uint32_t needed = 256 * sizeof(::HMODULE);  // Start with reasonable estimate
+		bool success = false;
+		
+		// Retry loop with overflow protection
+		for (int attempts = 0; attempts < 3 && !success; ++attempts) {
 			modules.resize(needed / sizeof(::HMODULE));
-			::K32EnumProcessModules(
+			if (::K32EnumProcessModules(
 				proc,
 				modules.data(),
 				static_cast<::DWORD>(modules.size() * sizeof(::HMODULE)),
-				reinterpret_cast<::DWORD*>(&needed));
-		} while ((modules.size() * sizeof(::HMODULE)) < needed);
+				reinterpret_cast<::DWORD*>(&needed))) {
+				success = true;
+				modules.resize(needed / sizeof(::HMODULE));
+			} else {
+				// API call failed - check if it's due to buffer size
+				const auto error = ::GetLastError();
+				if (error != ERROR_INSUFFICIENT_BUFFER && error != ERROR_MORE_DATA) {
+					// Real error, not just buffer size issue
+					logger::error("Failed to enumerate process modules: {}", error);
+					return false;
+				}
+			}
+		}
+
+		if (!success) {
+			logger::error("Failed to enumerate process modules after multiple attempts");
+			return false;
+		}
 
 		bool found_problematic = false;
 
 		// Check each loaded module against our list
 		for (const auto& module : modules) {
 			wchar_t module_path[MAX_PATH];
-			if (::GetModuleFileNameW(module, module_path, MAX_PATH) > 0) {
+			const auto len = ::GetModuleFileNameW(module, module_path, MAX_PATH);
+			if (len > 0 && len < MAX_PATH) {  // Check for success and no truncation
 				// Extract just the filename from the path
 				std::wstring path_str(module_path);
 				const auto last_slash = path_str.find_last_of(L"\\/");
 				std::wstring filename = (last_slash != std::wstring::npos) ? path_str.substr(last_slash + 1) : path_str;
 
 				// Convert to lowercase for case-insensitive comparison
-				std::transform(filename.begin(), filename.end(), filename.begin(), ::towlower);
+				std::transform(filename.begin(), filename.end(), filename.begin(), 
+					[](wchar_t c) { return static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c))); });
 
 				// Check against each problematic DLL pattern
 				for (const auto& problematic : problematic_dlls) {
-					// Convert pattern to lowercase wstring for comparison
-					std::wstring pattern_lower;
-					pattern_lower.reserve(problematic.pattern.length());
-					for (char c : problematic.pattern) {
-						pattern_lower += static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c)));
-					}
-
-					if (filename == pattern_lower) {
+					if (filename == problematic.pattern_lower) {
 						found_problematic = true;
 
 						// Log prominent warning
