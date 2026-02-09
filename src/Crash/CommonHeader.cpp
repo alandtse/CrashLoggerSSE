@@ -1,6 +1,7 @@
 #include "Crash/CommonHeader.h"
 
 #include <Settings.h>
+#include <Psapi.h>
 #include <algorithm>
 #include <ctime>
 #include <fmt/format.h>
@@ -398,6 +399,88 @@ namespace Crash
 			logger::error("Unknown exception during log upload");
 			return ""s;
 		}
+	}
+
+	// Detect problematic crash recovery DLLs
+	bool detect_and_log_problematic_dlls(spdlog::logger& a_log)
+	{
+		// Extensible list of problematic DLL patterns
+		// Each entry contains: {dll_name_pattern, warning_message, help_url}
+		struct ProblematicDLL
+		{
+			std::string_view pattern;
+			std::string_view name;
+			std::string_view warning;
+			std::string_view help_url;
+		};
+
+		const std::vector<ProblematicDLL> problematic_dlls = {
+			{ "SkyrimCrashGuard.dll",
+				"SkyrimCrashGuard",
+				"SkyrimCrashGuard attempts to recover from crashes by performing unsafe operations.\n"
+				"This can corrupt game state and make crash logs unreliable or misleading.\n"
+				"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.",
+				"https://www.nexusmods.com/skyrimspecialedition/mods/172082" }
+		};
+
+		// Get list of loaded modules
+		const auto proc = ::GetCurrentProcess();
+		std::vector<::HMODULE> modules;
+		std::uint32_t needed = 0;
+		do {
+			modules.resize(needed / sizeof(::HMODULE));
+			::K32EnumProcessModules(
+				proc,
+				modules.data(),
+				static_cast<::DWORD>(modules.size() * sizeof(::HMODULE)),
+				reinterpret_cast<::DWORD*>(&needed));
+		} while ((modules.size() * sizeof(::HMODULE)) < needed);
+
+		bool found_problematic = false;
+
+		// Check each loaded module against our list
+		for (const auto& module : modules) {
+			wchar_t module_path[MAX_PATH];
+			if (::GetModuleFileNameW(module, module_path, MAX_PATH) > 0) {
+				// Extract just the filename from the path
+				std::wstring path_str(module_path);
+				const auto last_slash = path_str.find_last_of(L"\\/");
+				std::wstring filename = (last_slash != std::wstring::npos) ? path_str.substr(last_slash + 1) : path_str;
+
+				// Convert to lowercase for case-insensitive comparison
+				std::transform(filename.begin(), filename.end(), filename.begin(), ::towlower);
+
+				// Check against each problematic DLL pattern
+				for (const auto& problematic : problematic_dlls) {
+					// Convert pattern to lowercase wstring for comparison
+					std::wstring pattern_lower;
+					pattern_lower.reserve(problematic.pattern.length());
+					for (char c : problematic.pattern) {
+						pattern_lower += static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c)));
+					}
+
+					if (filename == pattern_lower) {
+						found_problematic = true;
+
+						// Log prominent warning
+						a_log.critical(""sv);
+						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						a_log.critical("!!! WARNING: {} DETECTED !!!"sv, problematic.name);
+						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						a_log.critical(""sv);
+						a_log.critical("{}"sv, problematic.warning);
+						a_log.critical(""sv);
+						a_log.critical("For assistance or to remove this mod, visit:"sv);
+						a_log.critical("{}"sv, problematic.help_url);
+						a_log.critical(""sv);
+						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						a_log.critical(""sv);
+					}
+				}
+			}
+		}
+
+		return found_problematic;
 	}
 
 }  // namespace Crash

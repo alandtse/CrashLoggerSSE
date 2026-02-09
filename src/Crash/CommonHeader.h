@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <string_view>
+#include <vector>
 
 namespace Crash
 {
@@ -28,5 +29,9 @@ namespace Crash
 
 	// Copy text to Windows clipboard
 	bool copy_to_clipboard(const std::string& text);
+
+	// Detect problematic crash recovery DLLs and log warnings
+	// Returns true if any problematic DLLs were detected
+	[[nodiscard]] bool detect_and_log_problematic_dlls(spdlog::logger& a_log);
 
 }  // namespace Crash

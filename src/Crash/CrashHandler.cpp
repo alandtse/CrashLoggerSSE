@@ -1154,6 +1154,10 @@ namespace Crash
 				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
 
+				// Check for problematic crash recovery DLLs and log warnings
+				detect_and_log_problematic_dlls(*log);
+				log->flush();
+
 				// Construct callstack early so we can extract throw location for C++ exceptions
 				std::optional<Callstack> callstack;
 				std::string throwLocation;
