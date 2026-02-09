@@ -408,7 +408,7 @@ namespace Crash
 		struct ProblematicDLL
 		{
 			std::string_view pattern;
-			std::string_view pattern_lower;  // Pre-computed lowercase for comparison
+			std::string pattern_lower;  // Pre-computed lowercase for comparison
 			std::string_view name;
 			std::string_view warning;
 			std::string_view help_url;
