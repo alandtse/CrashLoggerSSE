@@ -552,6 +552,46 @@ namespace Crash
 #undef EXCEPTION_CASE
 		}
 
+		// Helper to check if a module is problematic (e.g., crash recovery mods)
+		// Returns warning message if problematic, empty optional otherwise
+		std::optional<std::pair<std::string_view, std::string_view>> check_problematic_module(std::string_view module_name)
+		{
+			// Extensible list of problematic modules
+			struct ProblematicModule
+			{
+				std::string_view pattern;
+				std::string_view name;
+				std::string_view warning;
+			};
+
+			static constexpr ProblematicModule problematic_modules[] = {
+				{ "skyrimcrashguard.dll",
+					"SkyrimCrashGuard",
+					"SkyrimCrashGuard attempts to recover from crashes by performing unsafe operations.\n"
+					"This can corrupt game state and make crash logs unreliable or misleading.\n"
+					"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.\n"
+					"\n"
+					"RECOMMENDED ACTION: Remove SkyrimCrashGuard or seek assistance from the mod author.\n"
+					"If you need help with crashes, use the crash log analysis tools instead.\n"
+					"For more information: https://www.nexusmods.com/skyrimspecialedition/mods/172082" }
+			};
+
+			// Convert module name to lowercase for case-insensitive comparison
+			std::string module_lower;
+			module_lower.reserve(module_name.length());
+			for (char c : module_name) {
+				module_lower += static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+			}
+
+			for (const auto& problematic : problematic_modules) {
+				if (module_lower == problematic.pattern) {
+					return std::make_pair(problematic.name, problematic.warning);
+				}
+			}
+
+			return std::nullopt;
+		}
+
 		void print_xse_plugins(spdlog::logger& a_log, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("SKSE PLUGINS:"sv);
@@ -1154,8 +1194,21 @@ namespace Crash
 				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
 
-				// Check for problematic crash recovery DLLs and log warnings
-				detect_and_log_problematic_dlls(*log, cmodules);
+				// Check for problematic crash recovery DLLs early (using already-collected modules)
+				for (const auto& mod : cmodules) {
+					if (auto warning = check_problematic_module(mod->name())) {
+						const auto& [name, warning_text] = *warning;
+						log->critical(""sv);
+						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						log->critical("!!! WARNING: {} DETECTED !!!"sv, name);
+						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						log->critical(""sv);
+						log->critical("{}"sv, warning_text);
+						log->critical(""sv);
+						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+						log->critical(""sv);
+					}
+				}
 				log->flush();
 
 				// Construct callstack early so we can extract throw location for C++ exceptions
