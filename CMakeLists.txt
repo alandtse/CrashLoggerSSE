@@ -38,6 +38,8 @@ set(sources
         src/Crash/Modules/ModuleHandler.h
         src/Crash/PDB/PdbHandler.cpp
         src/Crash/PDB/PdbHandler.h
+        src/Crash/ProblematicModules.cpp
+        src/Crash/ProblematicModules.h
         src/Crash/Analysis.cpp
         src/Crash/Analysis.h
         src/Crash/CppException.cpp

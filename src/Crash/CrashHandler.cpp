@@ -7,6 +7,7 @@
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
+#include "Crash/ProblematicModules.h"
 #include "Crash/ThreadDump.h"
 #include "dxgi1_4.h"
 #include <Settings.h>
@@ -552,53 +553,6 @@ namespace Crash
 #undef EXCEPTION_CASE
 		}
 
-		// Helper to check if a module is problematic (e.g., crash recovery mods)
-		struct ProblematicModuleInfo
-		{
-			std::string_view name;
-			std::string_view warning;
-		};
-
-		std::optional<ProblematicModuleInfo> check_problematic_module(std::string_view module_name)
-		{
-			// Extensible list of problematic modules
-			struct ProblematicModule
-			{
-				std::string_view pattern;
-				std::string_view name;
-				std::string_view warning;
-			};
-
-			static constexpr ProblematicModule problematic_modules[] = {
-				{ "skyrimcrashguard.dll",
-					"SkyrimCrashGuard",
-					"SkyrimCrashGuard attempts to recover from crashes by performing unsafe operations.\n"
-					"This can corrupt game state and make crash logs unreliable or misleading.\n"
-					"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.\n"
-					"\n"
-					"RECOMMENDED ACTION: Remove SkyrimCrashGuard or seek support from the author at:\n"
-					"https://www.nexusmods.com/skyrimspecialedition/mods/172082" }
-			};
-
-			// Case-insensitive comparison
-			auto ci_equal = [](std::string_view a, std::string_view b) {
-				return std::equal(a.begin(), a.end(), b.begin(), b.end(),
-					[](char ca, char cb) {
-						return ::tolower(static_cast<unsigned char>(ca)) ==
-					           ::tolower(static_cast<unsigned char>(cb));
-					});
-			};
-
-			for (const auto& problematic : problematic_modules) {
-				if (module_name.length() == problematic.pattern.length() &&
-					ci_equal(module_name, problematic.pattern)) {
-					return ProblematicModuleInfo{ problematic.name, problematic.warning };
-				}
-			}
-
-			return std::nullopt;
-		}
-
 		void print_xse_plugins(spdlog::logger& a_log, std::span<const module_pointer> a_modules)
 		{
 			a_log.critical("SKSE PLUGINS:"sv);
@@ -698,6 +652,11 @@ namespace Crash
 			}
 			std::sort(plugins.begin(), plugins.end(),
 				[=](const PluginInfo& a_lhs, const PluginInfo& a_rhs) { return ci(a_lhs.name, a_rhs.name); });
+
+			// Check SKSE plugin list for problematic modules
+			if (auto warning = find_problematic_module_in_names(modules)) {
+				log_problematic_module_warning(a_log, *warning, true);
+			}
 			for (const auto& p : plugins) {
 				if (p.version) {
 					const auto ver = [&]() {
@@ -1202,21 +1161,10 @@ namespace Crash
 				log->flush();
 
 				// Check for problematic crash recovery DLLs early (using already-collected modules)
-				for (const auto& mod : cmodules) {
-					if (auto warning = check_problematic_module(mod->name())) {
-						const auto& [name, warning_text] = *warning;
-						log->critical(""sv);
-						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						log->critical("!!! WARNING: {} DETECTED !!!"sv, name);
-						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						log->critical(""sv);
-						log->critical("{}"sv, warning_text);
-						log->critical(""sv);
-						log->critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						log->critical(""sv);
-					}
+				if (auto warning = find_problematic_module(cmodules)) {
+					log_problematic_module_warning(*log, *warning, true);
+					log->flush();
 				}
-				log->flush();
 
 				// Construct callstack early so we can extract throw location for C++ exceptions
 				std::optional<Callstack> callstack;
