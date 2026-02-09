@@ -56,7 +56,10 @@ namespace Crash::Introspection::SSE
 			}
 			if (a_var.IsString()) {
 				const auto str = a_var.GetString();
-				return Crash::Introspection::SSE::quoted(truncate_string(str, 64));
+				if (!str.empty()) {
+					return Crash::Introspection::SSE::quoted(truncate_string(str, 64));
+				}
+				return "\"\""s;
 			}
 			if (a_var.IsObject()) {
 				const auto obj = a_var.GetObject();
@@ -64,7 +67,8 @@ namespace Crash::Introspection::SSE
 					return "Object<null>"s;
 				}
 				const auto typeInfo = obj->GetTypeInfo();
-				const auto typeName = typeInfo ? std::string(typeInfo->GetName()) : ""s;
+				const auto* typeName = typeInfo ? typeInfo->GetName() : nullptr;
+				const std::string typeNameStr = (typeName && typeName[0]) ? std::string(typeName) : ""s;
 				std::string handleString;
 				if (a_skyrimVm) {
 					RE::BSFixedString handle;
@@ -73,11 +77,11 @@ namespace Crash::Introspection::SSE
 						handleString = handle.c_str();
 					}
 				}
-				if (!typeName.empty() && !handleString.empty()) {
-					return fmt::format("{} {}"sv, typeName, handleString);
+				if (!typeNameStr.empty() && !handleString.empty()) {
+					return fmt::format("{} {}"sv, typeNameStr, handleString);
 				}
-				if (!typeName.empty()) {
-					return typeName;
+				if (!typeNameStr.empty()) {
+					return typeNameStr;
 				}
 				if (!handleString.empty()) {
 					return handleString;
@@ -1419,11 +1423,10 @@ namespace Crash::Introspection::SSE
 			};
 
 			[[nodiscard]] std::string summarize_function_message(
-				const RE::BSScript::Internal::FunctionMessage& a_message,
-				int tab_depth = 0)
+				const RE::BSScript::Internal::FunctionMessage& a_message)
 			{
 				filter_results details;
-				FunctionMessage::filter(details, &a_message, tab_depth);
+				FunctionMessage::filter(details, &a_message, 0);  // Always use 0 for compact summary
 				if (details.empty()) {
 					return ""s;
 				}
@@ -1436,6 +1439,44 @@ namespace Crash::Introspection::SSE
 					result += key + "="s + value;
 				}
 				return result;
+			}
+
+			// Shared helper to traverse a FunctionMessage queue and format summaries
+			[[nodiscard]] std::string format_function_message_queue(
+				RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>* head,
+				std::size_t max_messages,
+				int tab_depth)
+			{
+				if (!head) {
+					return ""s;
+				}
+
+				std::string messageSummary = "\n"s;
+				std::size_t count = 0;
+				auto node = head;
+
+				while (node && count < max_messages) {
+					try {
+						if (!node->elem) {
+							messageSummary += fmt::format("{:\t>{}}[{}] <null message pointer>\n"sv, "", tab_depth, count);
+							node = node->next;
+							++count;
+							continue;
+						}
+						const auto message = reinterpret_cast<const RE::BSScript::Internal::FunctionMessage*>(node->elem);
+						const auto summary = summarize_function_message(*message);
+						if (!summary.empty()) {
+							messageSummary += fmt::format("{:\t>{}}[{}] {}\n"sv, "", tab_depth, count, summary);
+						}
+						node = node->next;
+						++count;
+					} catch (...) {
+						messageSummary += fmt::format("{:\t>{}}[{}] <error reading message>\n"sv, "", tab_depth, count);
+						break;
+					}
+				}
+
+				return messageSummary;
 			}
 
 			class VirtualMachine
@@ -1484,28 +1525,15 @@ namespace Crash::Introspection::SSE
 					} catch (...) {}
 
 					try {
-						auto node = object->funcMsgQueue.head;
-						if (node) {
-							std::string messageSummary = "\n"s;
-							constexpr std::size_t MAX_MESSAGES = 3;
-							std::size_t count = 0;
-							while (node && count < MAX_MESSAGES) {
-								const auto message = reinterpret_cast<const RE::BSScript::Internal::FunctionMessage*>(node->elem);
-								const auto summary = summarize_function_message(*message, tab_depth);
-								if (!summary.empty()) {
-									messageSummary += fmt::format("{:\t>{}}[{}] {}\n"sv, "", tab_depth, count, summary);
-								}
-								node = node->next;
-								++count;
+						constexpr std::size_t MAX_MESSAGES = 3;
+						auto messageSummary = format_function_message_queue(object->funcMsgQueue.head, MAX_MESSAGES, tab_depth);
+						if (!messageSummary.empty() && messageSummary != "\n"s) {
+							if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
+								messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
 							}
-							if (count > 0) {
-								if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
-									messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
-								}
-								a_results.emplace_back(
-									fmt::format("{:\t>{}}Queued Function Messages"sv, "", tab_depth),
-									messageSummary);
-							}
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Queued Function Messages"sv, "", tab_depth),
+								messageSummary);
 						}
 					} catch (...) {}
 
@@ -1551,30 +1579,12 @@ namespace Crash::Introspection::SSE
 								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue->head)));
 						} catch (...) {}
 
-						auto node = queue->head;
-						if (node) {
-							std::string messageSummary = "\n"s;
-							constexpr std::size_t MAX_MESSAGES = 5;
-							std::size_t count = 0;
-							while (node && count < MAX_MESSAGES) {
-								try {
-									const auto message = reinterpret_cast<const RE::BSScript::Internal::FunctionMessage*>(node->elem);
-									const auto summary = summarize_function_message(*message, tab_depth);
-									if (!summary.empty()) {
-										messageSummary += fmt::format("{:\t>{}}[{}] {}\n"sv, "", tab_depth, count, summary);
-									}
-									node = node->next;
-									++count;
-								} catch (...) {
-									messageSummary += fmt::format("{:\t>{}}[{}] <error reading message>\n"sv, "", tab_depth, count);
-									break;
-								}
-							}
-							if (!messageSummary.empty() && messageSummary != "\n"s) {
-								a_results.emplace_back(
-									fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
-									messageSummary);
-							}
+						constexpr std::size_t MAX_MESSAGES = 5;
+						auto messageSummary = format_function_message_queue(queue->head, MAX_MESSAGES, tab_depth);
+						if (!messageSummary.empty() && messageSummary != "\n"s) {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
+								messageSummary);
 						} else {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Queue Status"sv, "", tab_depth),
