@@ -77,6 +77,57 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, maxHeapsToCheck, section, "Max Heaps To Check", ";Maximum number of heaps to check (process has many heaps). Default: 1\n;1 = only check process heap (fastest, limited coverage)\n;2-5 = check multiple heaps (slower, better coverage)\n;0 = check all heaps (VERY SLOW, not recommended)");
 	get_value(a_ini, maxHeapIterationsPerHeap, section, "Max Heap Iterations Per Heap", ";Maximum allocations to check per heap before giving up. Default: 1000\n;Lower = faster but may miss allocations. Higher = slower but more thorough.\n;0 = unlimited (VERY SLOW, not recommended)");
 
+	// Thread context heuristics
+	// Parse all keys starting with "Thread Context "
+	threadContextHeuristics.clear();
+	CSimpleIniA::TNamesDepend keys;
+	a_ini.GetAllKeys(section, keys);
+
+	// If no heuristics configured, add defaults
+	bool hasHeuristics = false;
+	for (const auto& key : keys) {
+		if (std::string_view(key.pItem).starts_with("Thread Context ")) {
+			hasHeuristics = true;
+			break;
+		}
+	}
+
+	if (!hasHeuristics) {
+		a_ini.SetValue(section, "Thread Context Papyrus VM", "BSScript, Papyrus, VirtualMachine", "; Thread context detection: each line defines label and its trigger keywords (comma-separated)", false);
+		a_ini.SetValue(section, "Thread Context Havok/Physics", "hkp, Havok, bhk, hkb", nullptr, false);
+		a_ini.SetValue(section, "Thread Context Rendering", "Render, BSRender, BSShader, NiCamera", nullptr, false);
+		a_ini.SetValue(section, "Thread Context Audio", "Audio, XAudio, BSAudio, SoundHandle", nullptr, false);
+		a_ini.SetValue(section, "Thread Context Job/Task", "Job, Task, JobList, ServingThread", nullptr, false);
+
+		// Refresh keys
+		a_ini.GetAllKeys(section, keys);
+	}
+
+	for (const auto& key : keys) {
+		std::string_view keyStr(key.pItem);
+		if (keyStr.starts_with("Thread Context ")) {
+			std::string label(keyStr.substr(15));  // Skip "Thread Context "
+			std::string value = a_ini.GetValue(section, key.pItem, "");
+
+			// Parse comma-separated keywords
+			std::vector<std::string> keywords;
+			std::istringstream iss(value);
+			std::string token;
+			while (std::getline(iss, token, ',')) {
+				// Trim whitespace
+				token.erase(0, token.find_first_not_of(" \t"));
+				token.erase(token.find_last_not_of(" \t") + 1);
+				if (!token.empty()) {
+					keywords.push_back(token);
+				}
+			}
+
+			if (!keywords.empty()) {
+				threadContextHeuristics.emplace_back(std::move(label), std::move(keywords));
+			}
+		}
+	}
+
 	// Advanced section header
 	a_ini.SetValue(section, nullptr, nullptr,
 		"\n; ============================================================================\n"

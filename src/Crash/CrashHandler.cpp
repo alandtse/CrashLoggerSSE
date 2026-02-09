@@ -305,7 +305,9 @@ namespace Crash
 				}
 
 				// Check if this address has game introspection data
-				if (!Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
+				// FormIDs are always considered relevant as they imply successful introspection
+				const bool is_form_id = full_analysis.starts_with("(FormID");
+				if (!is_form_id && !Introspection::was_introspected(reinterpret_cast<const void*>(address))) {
 					return;
 				}
 
@@ -1158,21 +1160,18 @@ namespace Crash
 				}
 			};
 
-			for (const auto& frame : frames) {
-				if (contains_case_insensitive(frame, "BSScript") || contains_case_insensitive(frame, "Papyrus")) {
-					add_indicator("Papyrus VM");
-				}
-				if (contains_case_insensitive(frame, "hkp") || contains_case_insensitive(frame, "Havok")) {
-					add_indicator("Havok/Physics");
-				}
-				if (contains_case_insensitive(frame, "Render") || contains_case_insensitive(frame, "BSRender")) {
-					add_indicator("Rendering");
-				}
-				if (contains_case_insensitive(frame, "Audio") || contains_case_insensitive(frame, "XAudio")) {
-					add_indicator("Audio");
-				}
-				if (contains_case_insensitive(frame, "Job") || contains_case_insensitive(frame, "Task")) {
-					add_indicator("Job/Task");
+			const auto settings = Settings::GetSingleton();
+			if (settings) {
+				for (const auto& [label, keywords] : settings->GetDebug().threadContextHeuristics) {
+					for (const auto& frame : frames) {
+						for (const auto& keyword : keywords) {
+							if (contains_case_insensitive(frame, keyword)) {
+								add_indicator(label);
+								goto next_label;  // Found match for this label, skip to next label
+							}
+						}
+					}
+next_label:;
 				}
 			}
 

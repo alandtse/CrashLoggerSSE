@@ -29,6 +29,9 @@ public:
 		bool enableHeapAnalysis{ false };
 		int maxHeapsToCheck{ 1 };
 		int maxHeapIterationsPerHeap{ 1000 };
+
+		// Thread context heuristics (label -> list of keywords)
+		std::vector<std::pair<std::string, std::vector<std::string>>> threadContextHeuristics;
 	};
 
 	[[nodiscard]] static Settings* GetSingleton();

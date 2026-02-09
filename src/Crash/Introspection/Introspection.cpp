@@ -11,7 +11,10 @@
 #include <unordered_map>
 
 #include "RE/M/Main.h"
+#include "RE/P/ProcessLists.h"
 #include "RE/S/ShadowSceneNode.h"
+#include "RE/T/TESDataHandler.h"
+#include "RE/T/TESObjectCELL.h"
 
 namespace Crash::Introspection::SSE
 {
@@ -1899,68 +1902,6 @@ namespace Crash::Introspection
 			const std::string name_string;
 		};
 
-		class FormID
-		{
-		public:
-			FormID(std::uint32_t a_id, RE::TESForm* a_form) noexcept :
-				_id(a_id),
-				_form(a_form)
-			{}
-
-			[[nodiscard]] std::string name() const
-			{
-				if (!_form) {
-					return fmt::format("(FormID 0x{:08X})", _id);
-				}
-
-				std::string name;
-				std::string editorID;
-				std::string filename;
-				std::string typeName;
-				try {
-					if (const auto formName = _form->GetName(); formName && formName[0]) {
-						name = formName;
-					}
-				} catch (...) {}
-
-				try {
-					if (const auto formEditorID = _form->GetFormEditorID(); formEditorID && formEditorID[0]) {
-						editorID = formEditorID;
-					}
-				} catch (...) {}
-
-				try {
-					if (const auto file = _form->GetDescriptionOwnerFile(); file) {
-						filename = file->GetFilename();
-					}
-				} catch (...) {}
-
-				try {
-					typeName = std::string(magic_enum::enum_name(_form->GetFormType()));
-				} catch (...) {}
-
-				std::string result = fmt::format("(FormID 0x{:08X}", _id);
-				if (!name.empty()) {
-					result += fmt::format(" \"{}\"", name);
-				}
-				if (!editorID.empty()) {
-					result += fmt::format(" [{}]", editorID);
-				}
-				if (!filename.empty()) {
-					result += fmt::format(" ({})", filename);
-				}
-				if (!typeName.empty()) {
-					result += fmt::format(" {}", typeName);
-				}
-				result += ")";
-				return result;
-			}
-
-		private:
-			std::uint32_t _id;
-			RE::TESForm* _form;
-		};
-
 		class Pointer
 		{
 		public:
@@ -2032,14 +1973,24 @@ namespace Crash::Introspection
 				assert(_mangled.size() > 1 && _mangled.data()[_mangled.size()] == '\0');
 			}
 
+			void set_header(std::string a_header) noexcept { _header = std::move(a_header); }
+
+			[[nodiscard]] std::string demangled_name() const { return Crash::PDB::demangle(std::string{ _mangled }); }
+
+			[[nodiscard]] std::string get_formatted_name() const
+			{
+				const std::string demangled = demangled_name();
+				return _header.empty() ? fmt::format("({}*)"sv, demangled) : _header;
+			}
+
 			[[nodiscard]] std::string name() const
 			{
-				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
-				auto result = fmt::format("({}*)"sv, demangled);
+				auto result = get_formatted_name();
 
 				// Check if this address was already introspected
 				if (_ptr) {
 					// Determine if this is a game object before acquiring the lock
+					const std::string demangled = demangled_name();
 					bool is_game_obj = is_game_relevant_type(demangled);
 
 					// Use check-and-reserve pattern
@@ -2066,6 +2017,7 @@ namespace Crash::Introspection
 		private:
 			std::string_view _mangled;
 			const void* _ptr{ nullptr };
+			std::string _header;
 		};
 
 		class F4Polymorphic
@@ -2075,13 +2027,16 @@ namespace Crash::Introspection
 				std::string_view a_mangled,
 				const RE::RTTI::CompleteObjectLocator* a_col,
 				const void* a_ptr) noexcept :
-				_poly{ a_mangled },
+				_poly{ a_mangled, a_ptr },
 				_col{ a_col },
 				_ptr{ a_ptr }
 			{
 				assert(_col != nullptr);
 				assert(_ptr != nullptr);
 			}
+
+			void set_header(std::string a_header) noexcept { _poly.set_header(std::move(a_header)); }
+			[[nodiscard]] std::string demangled_name() const { return _poly.demangled_name(); }
 
 			[[nodiscard]] std::string name() const
 			{
@@ -2105,7 +2060,7 @@ namespace Crash::Introspection
 						}
 
 						// Different position - generate cross-reference
-						auto poly_name = _poly.name();
+						auto poly_name = _poly.get_formatted_name();
 
 						if (it->second.result.empty()) {
 							// Being processed by another thread or recursively - return placeholder
@@ -2118,7 +2073,7 @@ namespace Crash::Introspection
 					// else: we successfully reserved this slot, continue with introspection
 				}
 
-				auto result = _poly.name();
+				auto result = _poly.get_formatted_name();
 				SSE::filter_results xInfo;
 
 				const auto moduleBase = REL::Module::get().base();
@@ -2145,12 +2100,74 @@ namespace Crash::Introspection
 					}
 				}
 
+				// Post-process filters to reduce verbosity and improve header
+				std::string rootFile, rootName, rootFormID, rootFormType, rootFlags;
+				std::size_t rootFileIdx = std::string::npos, rootNameIdx = std::string::npos,
+							rootFormIDIdx = std::string::npos, rootFormTypeIdx = std::string::npos, rootFlagsIdx = std::string::npos;
+
+				for (std::size_t i = 0; i < xInfo.size(); ++i) {
+					const auto& key = xInfo[i].first;
+					const auto& val = xInfo[i].second;
+					if (key.find("File") != std::string::npos) {
+						rootFile = val;
+						rootFileIdx = i;
+					} else if (key.find("Name") != std::string::npos) {
+						rootName = val;
+						rootNameIdx = i;
+					} else if (key.find("FormID") != std::string::npos) {
+						rootFormID = val;
+						rootFormIDIdx = i;
+					} else if (key.find("FormType") != std::string::npos) {
+						rootFormType = val;
+						rootFormTypeIdx = i;
+					} else if (key.find("Flags") != std::string::npos) {
+						rootFlags = val;
+						rootFlagsIdx = i;
+					}
+				}
+
+				// Append to header
+				if (!rootName.empty())
+					result += fmt::format(" {}"sv, rootName);
+				if (!rootFormID.empty())
+					result += fmt::format(" [{}]"sv, rootFormID);
+				if (!rootFile.empty())
+					result += fmt::format(" ({})"sv, rootFile);
+
+				// Mark for removal
+				std::vector<bool> remove(xInfo.size(), false);
+				if (rootFileIdx != std::string::npos)
+					remove[rootFileIdx] = true;
+				if (rootNameIdx != std::string::npos)
+					remove[rootNameIdx] = true;
+				if (rootFormIDIdx != std::string::npos)
+					remove[rootFormIDIdx] = true;
+				if (rootFormTypeIdx != std::string::npos)
+					remove[rootFormTypeIdx] = true;
+				if (rootFlagsIdx != std::string::npos)
+					remove[rootFlagsIdx] = true;
+
+				// Remove duplicates (nested objects matching root)
+				for (std::size_t i = 0; i < xInfo.size(); ++i) {
+					if (remove[i])
+						continue;
+					const auto& key = xInfo[i].first;
+					const auto& val = xInfo[i].second;
+
+					if (key.find("File") != std::string::npos && val == rootFile)
+						remove[i] = true;
+					if (key.find("Name") != std::string::npos && val == rootName)
+						remove[i] = true;
+				}
+
 				if (!xInfo.empty()) {
-					for (const auto& [key, value] : xInfo) {
-						result += fmt::format(
-							"\n\t\t{}: {}"sv,
-							key,
-							value);
+					for (std::size_t i = 0; i < xInfo.size(); ++i) {
+						if (!remove[i]) {
+							result += fmt::format(
+								"\n\t\t{}: {}"sv,
+								xInfo[i].first,
+								xInfo[i].second);
+						}
 					}
 				}
 
@@ -2264,7 +2281,6 @@ namespace Crash::Introspection
 
 		using analysis_result = std::variant<
 			Integer,
-			FormID,
 			Pointer,
 			Polymorphic,
 			F4Polymorphic,
@@ -2376,16 +2392,87 @@ namespace Crash::Introspection
 			return make_result<Pointer>(a_ptr, a_modules);
 		}
 
+		[[nodiscard]] bool check_form_active(RE::TESForm* a_form)
+		{
+			if (!a_form) {
+				return false;
+			}
+
+			// For references: check if parent cell is loaded
+			if (auto ref = a_form->AsReference()) {
+				auto cell = ref->GetParentCell();
+				return cell && cell->IsAttached();
+			} else {  // only process objects with references
+				return false;
+			}
+
+			// For actors: check if in process lists
+			if (auto actor = a_form->As<RE::Actor>()) {
+				auto processLists = RE::ProcessLists::GetSingleton();
+				if (!processLists) {
+					return false;
+				}
+
+				// Check if the actor is being processed (has a high/middle/low process)
+				return actor->GetActorRuntimeData().currentProcess != nullptr;
+			}
+
+			// Other form types: assume active if they exist and are looked up successfully
+			// (base objects, magic effects, etc. don't have loaded/unloaded state like refs)
+			return true;
+		}
+
+		[[nodiscard]] bool check_mod_index(std::uint32_t a_formID)
+		{
+			const auto modIdx = a_formID >> 24;
+			const auto dataHandler = RE::TESDataHandler::GetSingleton();
+			if (!dataHandler)
+				return false;
+
+			if (modIdx == 0xFE) {
+				const auto lightIdx = static_cast<std::uint16_t>((a_formID >> 12) & 0xFFF);
+				return dataHandler->LookupLoadedLightModByIndex(lightIdx) != nullptr;
+			}
+
+			return dataHandler->LookupLoadedModByIndex(static_cast<std::uint8_t>(modIdx)) != nullptr;
+		}
+
 		[[nodiscard]] auto analyze_integer(
 			std::size_t a_value,
 			std::span<const module_pointer> a_modules) noexcept
 			-> analysis_result
 		{
 			try {
-				if (a_value <= std::numeric_limits<std::uint32_t>::max()) {
-					const auto formId = static_cast<RE::FormID>(a_value);
-					if (auto form = RE::TESForm::LookupByID(formId)) {
-						return make_result<FormID>(formId, form);
+				if (a_value && a_value <= std::numeric_limits<std::uint32_t>::max()) {
+					if (check_mod_index(static_cast<std::uint32_t>(a_value))) {
+						const auto formId = static_cast<RE::FormID>(a_value);
+						if (auto form = RE::TESForm::LookupByID(formId)) {
+							if (check_form_active(form)) {
+								auto result_opt = analyze_polymorphic(form, a_modules);
+								if (result_opt) {
+									auto& res = *result_opt;
+
+									std::string typeName = "Object";
+									std::visit([&](auto& x) {
+										if constexpr (requires { x.demangled_name(); }) {
+											typeName = x.demangled_name();
+										}
+									},
+										res);
+
+									std::string header = fmt::format("(FormID 0x{:X} -> {}* 0x{:X})", a_value, typeName, reinterpret_cast<std::uintptr_t>(form));
+
+									std::visit([&](auto& x) {
+										if constexpr (requires { x.set_header(""); }) {
+											x.set_header(std::move(header));
+										}
+									},
+										res);
+
+									return res;
+								}
+							}
+						}
 					}
 				}
 
