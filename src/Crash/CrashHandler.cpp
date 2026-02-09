@@ -1155,7 +1155,7 @@ namespace Crash
 				log->flush();
 
 				// Check for problematic crash recovery DLLs and log warnings
-				detect_and_log_problematic_dlls(*log);
+				detect_and_log_problematic_dlls(*log, cmodules);
 				log->flush();
 
 				// Construct callstack early so we can extract throw location for C++ exceptions

@@ -6,6 +6,11 @@
 
 namespace Crash
 {
+	namespace Modules
+	{
+		class Module;
+	}
+
 	// Logs shared header info used by crash logs and thread dumps.
 	// Keeps the exact same output format (timestamp, Skyrim runtime version, plugin build info).
 	void log_common_header_info(spdlog::logger& a_log, std::string_view title, std::string_view time_prefix);
@@ -32,6 +37,6 @@ namespace Crash
 
 	// Detect problematic crash recovery DLLs and log warnings
 	// Returns true if any problematic DLLs were detected
-	[[nodiscard]] bool detect_and_log_problematic_dlls(spdlog::logger& a_log);
+	[[nodiscard]] bool detect_and_log_problematic_dlls(spdlog::logger& a_log, std::span<const std::unique_ptr<Modules::Module>> a_modules);
 
 }  // namespace Crash

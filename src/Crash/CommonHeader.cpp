@@ -1,7 +1,6 @@
 #include "Crash/CommonHeader.h"
 
 #include <Settings.h>
-#include <Psapi.h>
 #include <algorithm>
 #include <ctime>
 #include <fmt/format.h>
@@ -402,14 +401,14 @@ namespace Crash
 	}
 
 	// Detect problematic crash recovery DLLs
-	bool detect_and_log_problematic_dlls(spdlog::logger& a_log)
+	bool detect_and_log_problematic_dlls(spdlog::logger& a_log, std::span<const std::unique_ptr<Modules::Module>> a_modules)
 	{
 		// Extensible list of problematic DLL patterns
 		// Each entry contains: {dll_name_pattern, warning_message, help_url}
 		struct ProblematicDLL
 		{
 			std::string_view pattern;
-			std::wstring pattern_lower;  // Pre-computed lowercase for comparison
+			std::string_view pattern_lower;  // Pre-computed lowercase for comparison
 			std::string_view name;
 			std::string_view warning;
 			std::string_view help_url;
@@ -418,12 +417,12 @@ namespace Crash
 		// Pre-compute lowercase patterns for efficiency
 		auto make_dll_entry = [](std::string_view pattern, std::string_view name, 
 								  std::string_view warning, std::string_view help_url) {
-			std::wstring pattern_lower;
+			std::string pattern_lower;
 			pattern_lower.reserve(pattern.length());
 			for (char c : pattern) {
-				pattern_lower += static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c)));
+				pattern_lower += static_cast<char>(::tolower(static_cast<unsigned char>(c)));
 			}
-			return ProblematicDLL{ pattern, std::move(pattern_lower), name, warning, help_url };
+			return ProblematicDLL{ pattern, pattern_lower, name, warning, help_url };
 		};
 
 		const std::vector<ProblematicDLL> problematic_dlls = {
@@ -431,77 +430,44 @@ namespace Crash
 				"SkyrimCrashGuard",
 				"SkyrimCrashGuard attempts to recover from crashes by performing unsafe operations.\n"
 				"This can corrupt game state and make crash logs unreliable or misleading.\n"
-				"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.",
+				"The crash information below may NOT be accurate due to SkyrimCrashGuard interference.\n"
+				"\n"
+				"RECOMMENDED ACTION: Remove SkyrimCrashGuard or seek assistance from the mod author.\n"
+				"If you need help with crashes, use the crash log analysis tools instead.",
 				"https://www.nexusmods.com/skyrimspecialedition/mods/172082")
 		};
-
-		// Get list of loaded modules
-		const auto proc = ::GetCurrentProcess();
-		std::vector<::HMODULE> modules;
-		std::uint32_t needed = 256 * sizeof(::HMODULE);  // Start with reasonable estimate
-		bool success = false;
-		
-		// Retry loop with overflow protection
-		for (int attempts = 0; attempts < 3 && !success; ++attempts) {
-			modules.resize(needed / sizeof(::HMODULE));
-			if (::K32EnumProcessModules(
-				proc,
-				modules.data(),
-				static_cast<::DWORD>(modules.size() * sizeof(::HMODULE)),
-				reinterpret_cast<::DWORD*>(&needed))) {
-				success = true;
-				modules.resize(needed / sizeof(::HMODULE));
-			} else {
-				// API call failed - check if it's due to buffer size
-				const auto error = ::GetLastError();
-				if (error != ERROR_INSUFFICIENT_BUFFER && error != ERROR_MORE_DATA) {
-					// Real error, not just buffer size issue
-					logger::error("Failed to enumerate process modules: {}", error);
-					return false;
-				}
-			}
-		}
-
-		if (!success) {
-			logger::error("Failed to enumerate process modules after multiple attempts");
-			return false;
-		}
 
 		bool found_problematic = false;
 
 		// Check each loaded module against our list
-		for (const auto& module : modules) {
-			wchar_t module_path[MAX_PATH];
-			const auto len = ::GetModuleFileNameW(module, module_path, MAX_PATH);
-			if (len > 0 && len < MAX_PATH) {  // Check for success and no truncation
-				// Extract just the filename from the path
-				std::wstring path_str(module_path);
-				const auto last_slash = path_str.find_last_of(L"\\/");
-				std::wstring filename = (last_slash != std::wstring::npos) ? path_str.substr(last_slash + 1) : path_str;
+		for (const auto& module : a_modules) {
+			const auto module_name = module->name();
+			
+			// Convert module name to lowercase for case-insensitive comparison
+			std::string module_name_lower;
+			module_name_lower.reserve(module_name.length());
+			for (char c : module_name) {
+				module_name_lower += static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+			}
 
-				// Convert to lowercase for case-insensitive comparison
-				std::transform(filename.begin(), filename.end(), filename.begin(), 
-					[](wchar_t c) { return static_cast<wchar_t>(::tolower(static_cast<unsigned char>(c))); });
+			// Check against each problematic DLL pattern
+			for (const auto& problematic : problematic_dlls) {
+				if (module_name_lower == problematic.pattern_lower) {
+					found_problematic = true;
 
-				// Check against each problematic DLL pattern
-				for (const auto& problematic : problematic_dlls) {
-					if (filename == problematic.pattern_lower) {
-						found_problematic = true;
-
-						// Log prominent warning
-						a_log.critical(""sv);
-						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						a_log.critical("!!! WARNING: {} DETECTED !!!"sv, problematic.name);
-						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						a_log.critical(""sv);
-						a_log.critical("{}"sv, problematic.warning);
-						a_log.critical(""sv);
-						a_log.critical("For assistance or to remove this mod, visit:"sv);
-						a_log.critical("{}"sv, problematic.help_url);
-						a_log.critical(""sv);
-						a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
-						a_log.critical(""sv);
-					}
+					// Log prominent warning
+					a_log.critical(""sv);
+					a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+					a_log.critical("!!! WARNING: {} DETECTED !!!"sv, problematic.name);
+					a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+					a_log.critical(""sv);
+					a_log.critical("{}"sv, problematic.warning);
+					a_log.critical(""sv);
+					a_log.critical("For more information, visit:"sv);
+					a_log.critical("{}"sv, problematic.help_url);
+					a_log.critical(""sv);
+					a_log.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"sv);
+					a_log.critical(""sv);
 				}
 			}
 		}
