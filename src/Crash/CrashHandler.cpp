@@ -976,10 +976,6 @@ namespace Crash
 				static auto _VR_IsRuntimeInstalled = reinterpret_cast<decltype(&VR_IsRuntimeInstalled)>(GetProcAddress(openvr, "VR_IsRuntimeInstalled"));
 				if (_VR_GetGenericInterface && _VR_IsHmdPresent && _VR_IsRuntimeInstalled && _VR_IsHmdPresent() && _VR_IsRuntimeInstalled()) {
 					a_log.critical("VR SPECS:"sv);
-					a_log.critical("\tNote: VR device info below is provided by OpenVR/SteamVR runtime."sv);
-					a_log.critical("\tIf incorrect, this may indicate driver conflicts or cached data issues."sv);
-					a_log.critical("\tTroubleshooting: Clear SteamVR cache, remove conflicting drivers, or reinstall SteamVR."sv);
-					a_log.critical(""sv);
 					// Loading the SteamVR Runtime
 					EVRInitError eError = VRInitError_None;
 					auto HMD = (IVRSystem*)_VR_GetGenericInterface(IVRSystem_Version, &eError);
@@ -994,12 +990,26 @@ namespace Crash
 						return;
 					}
 
+					// Find the actual HMD device by scanning all tracked devices
+					// Don't assume k_unTrackedDeviceIndex_Hmd (0) is correct - with driver conflicts
+					// or certain configurations, the wrong device may be at index 0
+					TrackedDeviceIndex_t hmdIndex = k_unTrackedDeviceIndex_Hmd;
+					for (TrackedDeviceIndex_t i = 0; i < k_unMaxTrackedDeviceCount; ++i) {
+						if (HMD->IsTrackedDeviceConnected(i) && HMD->GetTrackedDeviceClass(i) == TrackedDeviceClass_HMD) {
+							hmdIndex = i;
+							if (i != k_unTrackedDeviceIndex_Hmd) {
+								a_log.critical("\tNote: HMD found at device index {} instead of expected index 0"sv, i);
+							}
+							break;
+						}
+					}
+
 					// Helper lambda for safe string property retrieval
 					const auto get_string_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
 						try {
 							char propValue[k_unMaxPropertyStringSize] = {};
 							ETrackedPropertyError error = TrackedProp_Success;
-							HMD->GetStringTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, propValue, std::size(propValue), &error);
+							HMD->GetStringTrackedDeviceProperty(hmdIndex, prop, propValue, std::size(propValue), &error);
 
 							if (error == TrackedProp_Success && propValue[0] != '\0') {
 								a_log.critical("\t{}: {}"sv, name, propValue);
@@ -1020,7 +1030,7 @@ namespace Crash
 					const auto get_float_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
 						try {
 							ETrackedPropertyError error = TrackedProp_Success;
-							float value = HMD->GetFloatTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
+							float value = HMD->GetFloatTrackedDeviceProperty(hmdIndex, prop, &error);
 
 							if (error == TrackedProp_Success) {
 								a_log.critical("\t{}: {:.2f}"sv, name, value);
@@ -1041,7 +1051,7 @@ namespace Crash
 					const auto get_bool_prop = [&](ETrackedDeviceProperty prop, const std::string& name) {
 						try {
 							ETrackedPropertyError error = TrackedProp_Success;
-							bool value = HMD->GetBoolTrackedDeviceProperty(k_unTrackedDeviceIndex_Hmd, prop, &error);
+							bool value = HMD->GetBoolTrackedDeviceProperty(hmdIndex, prop, &error);
 
 							if (error == TrackedProp_Success) {
 								a_log.critical("\t{}: {}"sv, name, value ? "Yes" : "No");
