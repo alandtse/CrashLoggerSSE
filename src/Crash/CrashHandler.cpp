@@ -976,6 +976,10 @@ namespace Crash
 				static auto _VR_IsRuntimeInstalled = reinterpret_cast<decltype(&VR_IsRuntimeInstalled)>(GetProcAddress(openvr, "VR_IsRuntimeInstalled"));
 				if (_VR_GetGenericInterface && _VR_IsHmdPresent && _VR_IsRuntimeInstalled && _VR_IsHmdPresent() && _VR_IsRuntimeInstalled()) {
 					a_log.critical("VR SPECS:"sv);
+					a_log.critical("\tNote: VR device info below is provided by OpenVR/SteamVR runtime."sv);
+					a_log.critical("\tIf incorrect, this may indicate driver conflicts or cached data issues."sv);
+					a_log.critical("\tSee: https://github.com/ValveSoftware/openvr/issues or SteamVR settings."sv);
+					a_log.critical(""sv);
 					// Loading the SteamVR Runtime
 					EVRInitError eError = VRInitError_None;
 					auto HMD = (IVRSystem*)_VR_GetGenericInterface(IVRSystem_Version, &eError);
@@ -1056,8 +1060,11 @@ namespace Crash
 
 					// Essential crash-relevant VR information
 					get_string_prop(Prop_ModelNumber_String, "Model");
+					get_string_prop(Prop_SerialNumber_String, "Serial Number");
 					get_string_prop(Prop_ManufacturerName_String, "Manufacturer");
+					get_string_prop(Prop_HardwareRevision_String, "Hardware Revision");
 					get_string_prop(Prop_DriverVersion_String, "Driver Version");
+					get_string_prop(Prop_RenderModelName_String, "Render Model");
 					get_string_prop(Prop_TrackingSystemName_String, "Tracking System");
 
 					// Performance-critical display properties
