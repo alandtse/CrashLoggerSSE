@@ -1060,7 +1060,6 @@ namespace Crash
 
 					// Essential crash-relevant VR information
 					get_string_prop(Prop_ModelNumber_String, "Model");
-					get_string_prop(Prop_SerialNumber_String, "Serial Number");
 					get_string_prop(Prop_ManufacturerName_String, "Manufacturer");
 					get_string_prop(Prop_HardwareRevision_String, "Hardware Revision");
 					get_string_prop(Prop_DriverVersion_String, "Driver Version");
