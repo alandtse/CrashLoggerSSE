@@ -978,7 +978,7 @@ namespace Crash
 					a_log.critical("VR SPECS:"sv);
 					a_log.critical("\tNote: VR device info below is provided by OpenVR/SteamVR runtime."sv);
 					a_log.critical("\tIf incorrect, this may indicate driver conflicts or cached data issues."sv);
-					a_log.critical("\tSee: https://github.com/ValveSoftware/openvr/issues or SteamVR settings."sv);
+					a_log.critical("\tTroubleshooting: Clear SteamVR cache, remove conflicting drivers, or reinstall SteamVR."sv);
 					a_log.critical(""sv);
 					// Loading the SteamVR Runtime
 					EVRInitError eError = VRInitError_None;
