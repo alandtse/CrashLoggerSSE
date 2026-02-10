@@ -15,7 +15,7 @@ jobs:
   semantic-release:
     name: Semantic Release
     runs-on: windows-latest
-    if: github.repository_owner == 'alandtse'
+    if: github.event_name == 'push' && github.repository_owner == 'alandtse'
 
     steps:
       - uses: actions/checkout@v6
@@ -50,7 +50,10 @@ jobs:
   build:
     name: Build Release
     needs: semantic-release
-    if: needs.semantic-release.outputs.new_release_published == 'true'
+    if: |
+      always() &&
+      (needs.semantic-release.result == 'success' || needs.semantic-release.result == 'skipped') &&
+      needs.semantic-release.outputs.new_release_published == 'true'
     uses: ./.github/workflows/build-reusable.yml
     with:
       preset: Release-MSVC
@@ -83,14 +86,15 @@ jobs:
     needs: [semantic-release, build]
     if: |
       always() &&
-      (github.event_name == 'workflow_dispatch' || needs.semantic-release.outputs.new_release_published == 'true') &&
+      (needs.build.result == 'success' || github.event_name == 'workflow_dispatch') &&
+      (needs.semantic-release.outputs.new_release_published == 'true' || (github.event_name == 'workflow_dispatch' && inputs.version != '')) &&
       github.repository_owner == 'alandtse'
     uses: alandtse/nexus-workflows/.github/workflows/upload-nexus.yml@main
     with:
       nexus_game_id: skyrimspecialedition
       nexus_mod_id: 59818
       artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.semantic-release.outputs.new_release_version) || '' }}
-      tag_name: ${{ needs.semantic-release.outputs.new_release_published != 'true' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
+      tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
       mod_version: ${{ needs.semantic-release.outputs.new_release_version || inputs.version }}
       mod_filename: CrashLogger
       changelog: ${{ needs.semantic-release.outputs.new_release_notes }}

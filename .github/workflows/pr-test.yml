@@ -2,6 +2,24 @@ name: PR Test Build
 
 on:
   pull_request:
+    paths:
+      # Source files
+      - 'src/**/*.cpp'
+      - 'src/**/*.h'
+      - 'src/**/*.hpp'
+      # Build configuration
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'CMakePresets.json'
+      # Dependencies
+      - 'vcpkg.json'
+      - '.gitmodules'
+      - 'extern/**'
+      # Build scripts
+      - 'scripts/**'
+      # CI workflows that affect build
+      - '.github/workflows/build-reusable.yml'
+      - '.github/workflows/pr-test.yml'
 
 jobs:
   test-build:
