@@ -48,21 +48,14 @@ namespace Crash
 		return std::nullopt;
 	}
 
-	std::optional<ProblematicModuleInfo> find_problematic_module(std::span<const module_pointer> modules)
-	{
-		for (const auto& mod : modules) {
-			if (auto warning = check_problematic_module(mod->name())) {
-				return warning;
-			}
-		}
-		return std::nullopt;
-	}
-
 	void log_problematic_module_warning(spdlog::logger& logger, const ProblematicModuleInfo& info, bool is_crash_log, bool show_popup)
 	{
 		using namespace std::literals;
 
-		// Track which modules we've warned about to avoid duplicates
+		// Track which modules we've warned about to avoid duplicates across:
+		// 1. Startup warning (main log)
+		// 2. Crash log warning (if crash occurs)
+		// Whichever happens first will emit the warning; subsequent calls are silent
 		static std::unordered_set<std::string_view> warned_modules;
 		static std::mutex warned_mutex;
 		static constexpr std::string_view crash_logger_warning = "Crash Logger may not function correctly with this module loaded."sv;
@@ -71,7 +64,7 @@ namespace Crash
 		{
 			std::lock_guard lock(warned_mutex);
 			if (!warned_modules.insert(info.name).second) {
-				// Already warned about this module
+				// Already warned about this module in a previous log
 				return;
 			}
 		}

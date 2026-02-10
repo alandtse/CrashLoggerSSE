@@ -21,20 +21,22 @@ namespace Crash
 	// Check if a module name matches known problematic patterns
 	std::optional<ProblematicModuleInfo> check_problematic_module(std::string_view module_name);
 
-	// Check for problematic modules in loaded module list
-	std::optional<ProblematicModuleInfo> find_problematic_module(std::span<const module_pointer> modules);
-
-	// Check for problematic modules in a list of filenames/module names
+	// Unified function to check for problematic modules in any collection
+	// Works with loaded modules (span<module_pointer>) or string collections (set<string_view>, etc.)
 	template <typename Container>
-	std::optional<ProblematicModuleInfo> find_problematic_module_in_names(const Container& names)
+	std::optional<ProblematicModuleInfo> find_problematic_module(const Container& items)
 	{
-		for (const auto& name : names) {
-			// Handle both std::string and std::string_view
+		for (const auto& item : items) {
 			std::string_view name_view;
-			if constexpr (std::is_same_v<std::decay_t<decltype(name)>, std::string>) {
-				name_view = name;
-			} else {
-				name_view = name;
+
+			// Extract name based on item type
+			using ItemType = std::decay_t<decltype(item)>;
+			if constexpr (std::is_pointer_v<ItemType>) {
+				// module_pointer case: dereference and call name()
+				name_view = item->name();
+			} else if constexpr (std::is_convertible_v<ItemType, std::string_view>) {
+				// Direct string_view or string case
+				name_view = item;
 			}
 
 			if (auto warning = check_problematic_module(name_view)) {

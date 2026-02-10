@@ -653,10 +653,6 @@ namespace Crash
 			std::sort(plugins.begin(), plugins.end(),
 				[=](const PluginInfo& a_lhs, const PluginInfo& a_rhs) { return ci(a_lhs.name, a_rhs.name); });
 
-			// Check SKSE plugin list for problematic modules
-			if (auto warning = find_problematic_module_in_names(modules)) {
-				log_problematic_module_warning(a_log, *warning, true);
-			}
 			for (const auto& p : plugins) {
 				if (p.version) {
 					const auto ver = [&]() {
@@ -1160,9 +1156,9 @@ namespace Crash
 				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
 
-				// Check for problematic crash recovery DLLs early (using already-collected modules)
+				// Check for problematic modules early in crash log (for visibility in isolated crash log files)
 				if (auto warning = find_problematic_module(cmodules)) {
-					log_problematic_module_warning(*log, *warning, true);
+					log_problematic_module_warning(*log, *warning, true, false);
 					log->flush();
 				}
 
