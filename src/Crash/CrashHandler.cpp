@@ -7,6 +7,7 @@
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
+#include "Crash/ProblematicModules.h"
 #include "Crash/ThreadDump.h"
 #include "dxgi1_4.h"
 #include <Settings.h>
@@ -821,6 +822,7 @@ namespace Crash
 			}
 			std::sort(plugins.begin(), plugins.end(),
 				[=](const PluginInfo& a_lhs, const PluginInfo& a_rhs) { return ci(a_lhs.name, a_rhs.name); });
+
 			for (const auto& p : plugins) {
 				if (p.version) {
 					const auto ver = [&]() {
@@ -1390,6 +1392,12 @@ next_label:;
 				// Use common header logging function for crash info
 				log_common_header_info(*log, ""sv, "CRASH TIME:"sv);
 				log->flush();
+
+				// Check for problematic modules early in crash log (for visibility in isolated crash log files)
+				if (auto warning = find_problematic_module(cmodules)) {
+					log_problematic_module_warning(*log, *warning, true, false);
+					log->flush();
+				}
 
 				// Construct callstack early so we can extract throw location for C++ exceptions
 				std::optional<Callstack> callstack;

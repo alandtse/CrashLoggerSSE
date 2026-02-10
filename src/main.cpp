@@ -1,5 +1,7 @@
 #include "Crash/CrashHandler.h"
+#include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
+#include "Crash/ProblematicModules.h"
 
 #include "Settings.h"
 
@@ -185,7 +187,15 @@ namespace
 					break;
 				case MessagingInterface::kDataLoaded:  // All ESM/ESL/ESP plugins have loaded, main menu is now active.
 					// It is now safe to access form data.
-					InitializeHooking();
+					// Check for problematic modules after all SKSE plugins have loaded
+					try {
+						const auto modules = Crash::Modules::get_loaded_modules();
+						if (auto warning = Crash::find_problematic_module(modules)) {
+							Crash::log_problematic_module_warning(*spdlog::default_logger(), *warning, false, true);
+						}
+					} catch (...) {
+						logger::error("Failed to check for problematic modules during kDataLoaded");
+					}
 					break;
 
 				// Skyrim game events.
@@ -223,7 +233,7 @@ SKSEPluginLoad(const LoadInterface* skse)
 	log::info("{} {} {} {} is loading...", plugin->GetName(), version, __DATE__, __TIME__);
 	Init(skse);
 	Crash::Install(SetupCrashLogPath());
-	//InitializeMessaging();
+	InitializeMessaging();
 	//InitializeSerialization();
 	//InitializePapyrus();
 	//Crash::PDB::dump_symbols(true); // dump exe info
