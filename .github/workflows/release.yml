@@ -84,7 +84,7 @@ jobs:
 
   upload-to-nexus:
     name: Upload to Nexus Mods
-    needs: [semantic-release, build]
+    needs: [semantic-release, build, upload-github-release]
     if: |
       always() &&
       (needs.build.result == 'success' || github.event_name == 'workflow_dispatch') &&

@@ -99,6 +99,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ inputs.version }}"
+          $version = $version.Trim()
           if ($version -match '^v(.+)$') {
             $version = $matches[1]
           }
