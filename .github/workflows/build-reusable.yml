@@ -93,26 +93,32 @@ jobs:
             exit 1
           }
 
-      - name: Normalize version input
-        if: inputs.version != ''
+      - name: Validate and normalize version
         id: normalize
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}"
-          $version = $version.Trim()
-          if ($version -match '^v(.+)$') {
-            $version = $matches[1]
-          }
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            echo "Invalid version format: $version. Expected format: x.y.z"
-            exit 1
-          }
           $extracted = "${{ steps.project_version.outputs.version }}"
-          if ($version -ne $extracted) {
-            echo "Input version $version does not match built version $extracted"
-            exit 1
+
+          if ("${{ inputs.version }}" -ne "") {
+            $version = "${{ inputs.version }}"
+            $version = $version.Trim()
+            if ($version -match '^v(.+)$') {
+              $version = $matches[1]
+            }
+            if ($version -notmatch '^\d+\.\d+\.\d+$') {
+              echo "Invalid version format: $version. Expected format: x.y.z"
+              exit 1
+            }
+            if ($version -ne $extracted) {
+              echo "Input version $version does not match built version $extracted"
+              exit 1
+            }
+            echo "normalized_version=$version" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "normalized_version=$extracted" >> $env:GITHUB_OUTPUT
           }
-          echo "normalized_version=$version" >> $env:GITHUB_OUTPUT
+
+          echo "Using version: $($extracted)"
 
       - name: Set artifact info
         id: artifact_info

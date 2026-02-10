@@ -65,7 +65,10 @@ jobs:
     name: Upload GitHub Release
     needs: [semantic-release, build]
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (needs.semantic-release.result == 'success' && needs.semantic-release.outputs.new_release_published == 'true')
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (needs.semantic-release.outputs.new_release_published == 'true' || github.event_name == 'workflow_dispatch')
 
     steps:
       - name: Download artifact
@@ -73,13 +76,21 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact-name }}
 
+      - name: Get version for upload
+        id: version
+        run: |
+          VERSION="${{ needs.semantic-release.outputs.new_release_version || inputs.version }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION"
+
       - name: Upload files to GitHub release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file_glob: true
-          file: CrashLogger_${{ needs.semantic-release.outputs.new_release_version || needs.build.outputs.normalized_version }}.7z
-          tag: ${{ needs.semantic-release.outputs.new_release_git_tag || format('v{0}', needs.build.outputs.normalized_version) }}
+          file: "*.7z"
+          tag: ${{ needs.semantic-release.outputs.new_release_git_tag || steps.version.outputs.tag }}
           overwrite: true
 
   upload-to-nexus:
@@ -87,8 +98,9 @@ jobs:
     needs: [semantic-release, build, upload-github-release]
     if: |
       always() &&
-      (needs.build.result == 'success' || github.event_name == 'workflow_dispatch') &&
-      (needs.semantic-release.outputs.new_release_published == 'true' || (github.event_name == 'workflow_dispatch' && inputs.version != '')) &&
+      needs.build.result == 'success' &&
+      needs.upload-github-release.result == 'success' &&
+      (needs.semantic-release.outputs.new_release_published == 'true' || github.event_name == 'workflow_dispatch') &&
       github.repository_owner == 'alandtse'
     uses: alandtse/nexus-workflows/.github/workflows/upload-nexus.yml@main
     with:
@@ -96,7 +108,7 @@ jobs:
       nexus_mod_id: 59818
       artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.semantic-release.outputs.new_release_version) || '' }}
       tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
-      mod_version: ${{ needs.semantic-release.outputs.new_release_version || needs.build.outputs.normalized_version }}
+      mod_version: ${{ needs.semantic-release.outputs.new_release_version || inputs.version }}
       mod_filename: CrashLogger
       changelog: ${{ needs.semantic-release.outputs.new_release_notes }}
       file_description: |
