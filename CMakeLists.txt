@@ -32,6 +32,8 @@ set(headers
 set(sources
         src/Crash/Introspection/Introspection.cpp
         src/Crash/Introspection/Introspection.h
+        src/Crash/Introspection/HeapAnalysis.cpp
+        src/Crash/Introspection/HeapAnalysis.h
         src/Crash/Introspection/RelevantObjectsSimplifier.cpp
         src/Crash/Introspection/RelevantObjectsSimplifier.h
         src/Crash/Modules/ModuleHandler.cpp

@@ -1,5 +1,6 @@
 #include "Crash/Introspection/Introspection.h"
 
+#include "Crash/Introspection/HeapAnalysis.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #define MAGIC_ENUM_RANGE_MAX 256
@@ -10,7 +11,10 @@
 #include <unordered_map>
 
 #include "RE/M/Main.h"
+#include "RE/P/ProcessLists.h"
 #include "RE/S/ShadowSceneNode.h"
+#include "RE/T/TESDataHandler.h"
+#include "RE/T/TESObjectCELL.h"
 
 namespace Crash::Introspection::SSE
 {
@@ -1969,14 +1973,24 @@ namespace Crash::Introspection
 				assert(_mangled.size() > 1 && _mangled.data()[_mangled.size()] == '\0');
 			}
 
+			void set_header(std::string a_header) noexcept { _header = std::move(a_header); }
+
+			[[nodiscard]] std::string demangled_name() const { return Crash::PDB::demangle(std::string{ _mangled }); }
+
+			[[nodiscard]] std::string get_formatted_name() const
+			{
+				const std::string demangled = demangled_name();
+				return _header.empty() ? fmt::format("({}*)"sv, demangled) : _header;
+			}
+
 			[[nodiscard]] std::string name() const
 			{
-				const std::string demangled = Crash::PDB::demangle(std::string{ _mangled });
-				auto result = fmt::format("({}*)"sv, demangled);
+				auto result = get_formatted_name();
 
 				// Check if this address was already introspected
 				if (_ptr) {
 					// Determine if this is a game object before acquiring the lock
+					const std::string demangled = demangled_name();
 					bool is_game_obj = is_game_relevant_type(demangled);
 
 					// Use check-and-reserve pattern
@@ -2003,6 +2017,7 @@ namespace Crash::Introspection
 		private:
 			std::string_view _mangled;
 			const void* _ptr{ nullptr };
+			std::string _header;
 		};
 
 		class F4Polymorphic
@@ -2012,13 +2027,16 @@ namespace Crash::Introspection
 				std::string_view a_mangled,
 				const RE::RTTI::CompleteObjectLocator* a_col,
 				const void* a_ptr) noexcept :
-				_poly{ a_mangled },
+				_poly{ a_mangled, a_ptr },
 				_col{ a_col },
 				_ptr{ a_ptr }
 			{
 				assert(_col != nullptr);
 				assert(_ptr != nullptr);
 			}
+
+			void set_header(std::string a_header) noexcept { _poly.set_header(std::move(a_header)); }
+			[[nodiscard]] std::string demangled_name() const { return _poly.demangled_name(); }
 
 			[[nodiscard]] std::string name() const
 			{
@@ -2042,7 +2060,7 @@ namespace Crash::Introspection
 						}
 
 						// Different position - generate cross-reference
-						auto poly_name = _poly.name();
+						auto poly_name = _poly.get_formatted_name();
 
 						if (it->second.result.empty()) {
 							// Being processed by another thread or recursively - return placeholder
@@ -2055,7 +2073,7 @@ namespace Crash::Introspection
 					// else: we successfully reserved this slot, continue with introspection
 				}
 
-				auto result = _poly.name();
+				auto result = _poly.get_formatted_name();
 				SSE::filter_results xInfo;
 
 				const auto moduleBase = REL::Module::get().base();
@@ -2082,12 +2100,76 @@ namespace Crash::Introspection
 					}
 				}
 
+				// Post-process filters to reduce verbosity and improve header
+				std::string rootFile, rootName, rootFormID, rootFormType, rootFlags;
+				std::size_t rootFileIdx = std::string::npos, rootNameIdx = std::string::npos,
+							rootFormIDIdx = std::string::npos, rootFormTypeIdx = std::string::npos, rootFlagsIdx = std::string::npos;
+
+				for (std::size_t i = 0; i < xInfo.size(); ++i) {
+					const auto& key = xInfo[i].first;
+					const auto& val = xInfo[i].second;
+					// Only match root-level keys (no leading tabs) to avoid matching nested "Full Name", "Skeleton Name", etc.
+					if (key == "File") {
+						rootFile = val;
+						rootFileIdx = i;
+					} else if (key == "Name") {
+						rootName = val;
+						rootNameIdx = i;
+					} else if (key == "FormID") {
+						rootFormID = val;
+						rootFormIDIdx = i;
+					} else if (key == "FormType") {
+						rootFormType = val;
+						rootFormTypeIdx = i;
+					} else if (key == "Flags") {
+						rootFlags = val;
+						rootFlagsIdx = i;
+					}
+				}
+
+				// Append to header
+				if (!rootName.empty())
+					result += fmt::format(" {}"sv, rootName);
+				if (!rootFormID.empty())
+					result += fmt::format(" [{}]"sv, rootFormID);
+				if (!rootFile.empty())
+					result += fmt::format(" ({})"sv, rootFile);
+
+				// Mark for removal
+				std::vector<bool> remove(xInfo.size(), false);
+				if (rootFileIdx != std::string::npos)
+					remove[rootFileIdx] = true;
+				if (rootNameIdx != std::string::npos)
+					remove[rootNameIdx] = true;
+				if (rootFormIDIdx != std::string::npos)
+					remove[rootFormIDIdx] = true;
+				if (rootFormTypeIdx != std::string::npos)
+					remove[rootFormTypeIdx] = true;
+				if (rootFlagsIdx != std::string::npos)
+					remove[rootFlagsIdx] = true;
+
+				// Remove duplicates (nested objects matching root)
+				for (std::size_t i = 0; i < xInfo.size(); ++i) {
+					if (remove[i])
+						continue;
+					const auto& key = xInfo[i].first;
+					const auto& val = xInfo[i].second;
+
+					// Match any depth for duplicate removal (starts with tab or exact match)
+					if ((key == "File" || key.find("\tFile") == 0) && val == rootFile)
+						remove[i] = true;
+					if ((key == "Name" || key.find("\tName") == 0) && val == rootName)
+						remove[i] = true;
+				}
+
 				if (!xInfo.empty()) {
-					for (const auto& [key, value] : xInfo) {
-						result += fmt::format(
-							"\n\t\t{}: {}"sv,
-							key,
-							value);
+					for (std::size_t i = 0; i < xInfo.size(); ++i) {
+						if (!remove[i]) {
+							result += fmt::format(
+								"\n\t\t{}: {}"sv,
+								xInfo[i].first,
+								xInfo[i].second);
+						}
 					}
 				}
 
@@ -2179,12 +2261,33 @@ namespace Crash::Introspection
 			std::string_view _str;
 		};
 
+		class HeapPointer
+		{
+		public:
+			HeapPointer(const void* a_ptr, const Heap::HeapInfo& a_info) noexcept :
+				_ptr(a_ptr),
+				_info(a_info)
+			{}
+
+			[[nodiscard]] std::string name() const
+			{
+				return fmt::format("(void*) 0x{:012X} [Heap: {}]"sv,
+					reinterpret_cast<std::uintptr_t>(_ptr),
+					Heap::format_heap_info(_info));
+			}
+
+		private:
+			const void* _ptr;
+			Heap::HeapInfo _info;
+		};
+
 		using analysis_result = std::variant<
 			Integer,
 			Pointer,
 			Polymorphic,
 			F4Polymorphic,
-			String>;
+			String,
+			HeapPointer>;
 
 		template <class T, class... Args>
 		[[nodiscard]] analysis_result make_result(Args&&... a_args) noexcept(
@@ -2283,7 +2386,58 @@ namespace Crash::Introspection
 				return *std::move(str);
 			}
 
+			// Check if pointer is in a heap allocation
+			// Wrap in try-catch since analyze_heap_pointer can throw (e.g., OOM during crash)
+			try {
+				if (auto heap_info = Heap::analyze_heap_pointer(a_ptr); heap_info) {
+					return make_result<HeapPointer>(a_ptr, *heap_info);
+				}
+			} catch (...) {
+				// Swallow exception and fall back to basic pointer analysis
+				// (better to lose heap metadata than the entire crash log)
+			}
+
 			return make_result<Pointer>(a_ptr, a_modules);
+		}
+
+		[[nodiscard]] bool check_form_active(RE::TESForm* a_form)
+		{
+			if (!a_form) {
+				return false;
+			}
+
+			// Check actors first (they inherit from TESObjectREFR, so must be checked before general reference check)
+			if (auto actor = a_form->As<RE::Actor>()) {
+				auto processLists = RE::ProcessLists::GetSingleton();
+				if (!processLists) {
+					return false;
+				}
+
+				// Check if the actor is being processed (has a high/middle/low process)
+				return actor->GetActorRuntimeData().currentProcess != nullptr;
+			}
+
+			// For other references: check if parent cell is loaded
+			if (auto ref = a_form->AsReference()) {
+				auto cell = ref->GetParentCell();
+				return cell && cell->IsAttached();
+			}
+			return false;
+		}
+
+		[[nodiscard]] bool check_mod_index(std::uint32_t a_formID)
+		{
+			const auto modIdx = a_formID >> 24;
+			const auto dataHandler = RE::TESDataHandler::GetSingleton();
+			if (!dataHandler)
+				return false;
+
+			if (modIdx == 0xFE) {
+				const auto lightIdx = static_cast<std::uint16_t>((a_formID >> 12) & 0xFFF);
+				return dataHandler->LookupLoadedLightModByIndex(lightIdx) != nullptr;
+			}
+
+			return dataHandler->LookupLoadedModByIndex(static_cast<std::uint8_t>(modIdx)) != nullptr;
 		}
 
 		[[nodiscard]] auto analyze_integer(
@@ -2292,6 +2446,39 @@ namespace Crash::Introspection
 			-> analysis_result
 		{
 			try {
+				if (a_value && a_value <= std::numeric_limits<std::uint32_t>::max()) {
+					if (check_mod_index(static_cast<std::uint32_t>(a_value))) {
+						const auto formId = static_cast<RE::FormID>(a_value);
+						if (auto form = RE::TESForm::LookupByID(formId)) {
+							if (check_form_active(form)) {
+								auto result_opt = analyze_polymorphic(form, a_modules);
+								if (result_opt) {
+									auto& res = *result_opt;
+
+									std::string typeName = "Object";
+									std::visit([&](auto& x) {
+										if constexpr (requires { x.demangled_name(); }) {
+											typeName = x.demangled_name();
+										}
+									},
+										res);
+
+									std::string header = fmt::format("(FormID 0x{:X} -> {}* 0x{:X})", a_value, typeName, reinterpret_cast<std::uintptr_t>(form));
+
+									std::visit([&](auto& x) {
+										if constexpr (requires { x.set_header(""); }) {
+											x.set_header(std::move(header));
+										}
+									},
+										res);
+
+									return res;
+								}
+							}
+						}
+					}
+				}
+
 				if (a_value != 0) {
 					*reinterpret_cast<const volatile std::byte*>(a_value);
 					return analyze_pointer(reinterpret_cast<void*>(a_value), a_modules);

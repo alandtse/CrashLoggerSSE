@@ -313,12 +313,14 @@ namespace Crash::Modules
 		const auto offset = reinterpret_cast<std::uintptr_t>(a_frame.address()) - address();
 		const auto assembly = this->assembly(a_frame.address());
 		const auto pdbDetails = Crash::PDB::pdb_details(path(), offset);
+		const auto pdbParams = Crash::PDB::pdb_function_parameters(path(), offset);
 		if (!pdbDetails.empty())
 			return fmt::format(
-				"+{:07X}\t{} | {}"sv,
+				"+{:07X}\t{} | {}{}"sv,
 				offset,
 				assembly,
-				pdbDetails);
+				pdbDetails,
+				pdbParams.empty() ? ""s : fmt::format(" | params: {}", pdbParams));
 		return fmt::format(
 			"+{:07X}"sv,
 			offset);

@@ -24,6 +24,14 @@ public:
 		bool enableThreadDumpHotkey{ true };
 		std::vector<int> threadDumpHotkey{ VK_CONTROL, VK_SHIFT, VK_F12 };
 		bool threadDumpWriteMinidump{ false };
+
+		// Heap analysis settings
+		bool enableHeapAnalysis{ false };
+		int maxHeapsToCheck{ 1 };
+		int maxHeapIterationsPerHeap{ 1000 };
+
+		// Thread context heuristics (label -> list of keywords)
+		std::vector<std::pair<std::string, std::vector<std::string>>> threadContextHeuristics;
 	};
 
 	[[nodiscard]] static Settings* GetSingleton();
