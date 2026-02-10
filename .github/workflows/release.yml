@@ -1,0 +1,107 @@
+name: Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to upload to Nexus (leave empty for latest release)'
+        type: string
+        required: false
+
+jobs:
+  semantic-release:
+    name: Semantic Release
+    runs-on: windows-latest
+    if: github.event_name == 'push' && github.repository_owner == 'alandtse'
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v6
+        id: semantic
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/github
+            @google/semantic-release-replace-plugin
+          dry_run: false
+          semantic_version: 24.2.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+      new_release_git_tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+      new_release_notes: ${{ steps.semantic.outputs.new_release_notes }}
+
+  build:
+    name: Build Release
+    needs: semantic-release
+    if: |
+      always() &&
+      (needs.semantic-release.result == 'success' || needs.semantic-release.result == 'skipped') &&
+      needs.semantic-release.outputs.new_release_published == 'true'
+    uses: ./.github/workflows/build-reusable.yml
+    with:
+      preset: Release-MSVC
+      version: ${{ needs.semantic-release.outputs.new_release_version }}
+      upload-artifact: true
+
+  upload-github-release:
+    name: Upload GitHub Release
+    needs: [semantic-release, build]
+    runs-on: ubuntu-latest
+    if: needs.semantic-release.outputs.new_release_published == 'true'
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.build.outputs.artifact-name }}
+
+      - name: Upload files to GitHub release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file_glob: true
+          file: CrashLogger_${{ needs.semantic-release.outputs.new_release_version }}.7z
+          tag: ${{ needs.semantic-release.outputs.new_release_git_tag }}
+          overwrite: true
+
+  upload-to-nexus:
+    name: Upload to Nexus Mods
+    needs: [semantic-release, build]
+    if: |
+      always() &&
+      (needs.build.result == 'success' || github.event_name == 'workflow_dispatch') &&
+      (needs.semantic-release.outputs.new_release_published == 'true' || (github.event_name == 'workflow_dispatch' && inputs.version != '')) &&
+      github.repository_owner == 'alandtse'
+    uses: alandtse/nexus-workflows/.github/workflows/upload-nexus.yml@main
+    with:
+      nexus_game_id: skyrimspecialedition
+      nexus_mod_id: 59818
+      artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.semantic-release.outputs.new_release_version) || '' }}
+      tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
+      mod_version: ${{ needs.semantic-release.outputs.new_release_version || inputs.version }}
+      mod_filename: CrashLogger
+      changelog: ${{ needs.semantic-release.outputs.new_release_notes }}
+      file_description: |
+        See Description → Requirements for installation instructions.
+        PDB is for crash debugging and can be removed.
+      previous_file: auto
+    secrets:
+      UNEX_NEXUSMODS_SESSION_COOKIE: ${{ secrets.UNEX_NEXUSMODS_SESSION_COOKIE }}
+      UNEX_APIKEY: ${{ secrets.UNEX_APIKEY }}
