@@ -6,9 +6,13 @@
 #define MAGIC_ENUM_RANGE_MAX 256
 #include <DbgHelp.h>
 #include <SKSE/Logger.h>
+#include <algorithm>
 #include <atomic>
 #include <magic_enum/magic_enum.hpp>
 #include <unordered_map>
+
+#include "RE/B/BSTMessageQueue.h"
+#include "RE/F/FunctionMessage.h"
 
 #include "RE/M/Main.h"
 #include "RE/P/ProcessLists.h"
@@ -23,6 +27,87 @@ namespace Crash::Introspection::SSE
 	[[nodiscard]] std::string quoted(std::string_view a_str)
 	{
 		return fmt::format("\"{}\""sv, a_str);
+	}
+
+	[[nodiscard]] std::string truncate_string(std::string_view a_str, std::size_t a_max)
+	{
+		if (a_str.size() <= a_max) {
+			return std::string(a_str);
+		}
+		if (a_max <= 3) {
+			return std::string(a_str.substr(0, a_max));
+		}
+		return fmt::format("{}..."sv, a_str.substr(0, a_max - 3));
+	}
+
+	[[nodiscard]] std::string format_script_variable(
+		const RE::BSScript::Variable& a_var,
+		const RE::SkyrimVM* a_skyrimVm)
+	{
+		try {
+			if (a_var.IsNoneObject() || a_var.IsNoneArray()) {
+				return "None"s;
+			}
+
+			if (a_var.IsBool()) {
+				return a_var.GetBool() ? "true"s : "false"s;
+			}
+			if (a_var.IsInt()) {
+				return fmt::format("{}"sv, a_var.GetSInt());
+			}
+			if (a_var.IsFloat()) {
+				return fmt::format("{}"sv, a_var.GetFloat());
+			}
+			if (a_var.IsString()) {
+				const auto str = a_var.GetString();
+				if (!str.empty()) {
+					return Crash::Introspection::SSE::quoted(truncate_string(str, 64));
+				}
+				return "\"\""s;
+			}
+			if (a_var.IsObject()) {
+				const auto obj = a_var.GetObject();
+				if (!obj) {
+					return "Object<null>"s;
+				}
+				const auto typeInfo = obj->GetTypeInfo();
+				const auto* typeName = typeInfo ? typeInfo->GetName() : nullptr;
+				const std::string typeNameStr = (typeName && typeName[0]) ? std::string(typeName) : ""s;
+				std::string handleString;
+				if (a_skyrimVm) {
+					RE::BSFixedString handle;
+					a_skyrimVm->handlePolicy.ConvertHandleToString(obj->GetHandle(), handle);
+					if (handle.c_str() && handle[0]) {
+						handleString = handle.c_str();
+					}
+				}
+				if (!typeNameStr.empty() && !handleString.empty()) {
+					return fmt::format("{} {}"sv, typeNameStr, handleString);
+				}
+				if (!typeNameStr.empty()) {
+					return typeNameStr;
+				}
+				if (!handleString.empty()) {
+					return handleString;
+				}
+				return "Object"s;
+			}
+			if (a_var.IsArray()) {
+				const auto arr = a_var.GetArray();
+				if (!arr) {
+					return "Array<null>"s;
+				}
+				return fmt::format("Array<{}> size={}"sv, arr->type_info().TypeAsString(), arr->size());
+			}
+
+			const auto typeName = a_var.GetType().TypeAsString();
+			if (!typeName.empty()) {
+				return typeName;
+			}
+		} catch (...) {
+		}
+
+		return "<unavailable>"s;
 	}
 
 	template <class T = RE::TESForm>
@@ -1253,6 +1338,151 @@ namespace Crash::Introspection::SSE
 
 		namespace Internal
 		{
+			class FunctionMessage
+			{
+			public:
+				using value_type = RE::BSScript::Internal::FunctionMessage;
+
+				static void filter(
+					filter_results& a_results,
+					const void* a_ptr, int tab_depth = 0) noexcept
+				{
+					const auto message = static_cast<const value_type*>(a_ptr);
+					if (!message) {
+						return;
+					}
+
+					try {
+						a_results.emplace_back(
+							fmt::format("{:\t>{}}Type"sv, "", tab_depth),
+							fmt::format("{}"sv, magic_enum::enum_name(message->type)));
+					} catch (...) {}
+
+					try {
+						if (message->stack) {
+							const auto stack = message->stack.get();
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Stack ID"sv, "", tab_depth),
+								fmt::format("{}"sv, stack->stackID));
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Stack State"sv, "", tab_depth),
+								fmt::format("{}"sv, magic_enum::enum_name(stack->state.get())));
+						}
+					} catch (...) {}
+
+					try {
+						if (message->funcQuery) {
+							const auto skyrimVm = RE::SkyrimVM::GetSingleton();
+							RE::BSScript::Internal::IFuncCallQuery::CallType callType;
+							RE::BSTSmartPointer<RE::BSScript::ObjectTypeInfo> objectType;
+							RE::BSFixedString functionName;
+							RE::BSScript::Variable self;
+							RE::BSScrapArray<RE::BSScript::Variable> args;
+							if (message->funcQuery->GetFunctionCallInfo(callType, objectType, functionName, self, args)) {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}Call Type"sv, "", tab_depth),
+									fmt::format("{}"sv, magic_enum::enum_name(callType)));
+
+								if (objectType && objectType->GetName()) {
+									a_results.emplace_back(
+										fmt::format("{:\t>{}}Object"sv, "", tab_depth),
+										quoted(objectType->GetName()));
+								}
+
+								if (functionName.c_str() && functionName[0]) {
+									a_results.emplace_back(
+										fmt::format("{:\t>{}}Function"sv, "", tab_depth),
+										quoted(functionName.c_str()));
+								}
+
+								std::string argsString;
+								const std::size_t argsCount = args.size();
+								constexpr std::size_t MAX_ARGS = 6;
+								const auto argsLimit = std::min(argsCount, MAX_ARGS);
+								for (std::size_t i = 0; i < argsLimit; ++i) {
+									if (!argsString.empty()) {
+										argsString += ", "s;
+									}
+									argsString += format_script_variable(args[i], skyrimVm);
+								}
+								if (argsCount > MAX_ARGS) {
+									argsString += fmt::format(", ... (+{})"sv, argsCount - MAX_ARGS);
+								}
+								if (!argsString.empty()) {
+									a_results.emplace_back(
+										fmt::format("{:\t>{}}Args"sv, "", tab_depth),
+										argsString);
+								}
+
+								const auto selfString = format_script_variable(self, skyrimVm);
+								if (!selfString.empty() && selfString != "None"s) {
+									a_results.emplace_back(
+										fmt::format("{:\t>{}}Self"sv, "", tab_depth),
+										selfString);
+								}
+							}
+						}
+					} catch (...) {}
+				}
+			};
+
+			[[nodiscard]] std::string summarize_function_message(
+				const RE::BSScript::Internal::FunctionMessage& a_message)
+			{
+				filter_results details;
+				FunctionMessage::filter(details, &a_message, 0);  // Always use 0 for compact summary
+				if (details.empty()) {
+					return ""s;
+				}
+
+				std::string result;
+				for (const auto& [key, value] : details) {
+					if (!result.empty()) {
+						result += ", "s;
+					}
+					result += key + "="s + value;
+				}
+				return result;
+			}
+
+			// Shared helper to traverse a FunctionMessage queue and format summaries
+			[[nodiscard]] std::string format_function_message_queue(
+				RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>* head,
+				std::size_t max_messages,
+				int tab_depth)
+			{
+				if (!head) {
+					return ""s;
+				}
+
+				std::string messageSummary = "\n"s;
+				std::size_t count = 0;
+				auto node = head;
+
+				while (node && count < max_messages) {
+					try {
+						if (!node->elem) {
+							messageSummary += fmt::format("{:\t>{}}[{}] <null message pointer>\n"sv, "", tab_depth, count);
+							node = node->next;
+							++count;
+							continue;
+						}
+						const auto message = reinterpret_cast<const RE::BSScript::Internal::FunctionMessage*>(node->elem);
+						const auto summary = summarize_function_message(*message);
+						if (!summary.empty()) {
+							messageSummary += fmt::format("{:\t>{}}[{}] {}\n"sv, "", tab_depth, count, summary);
+						}
+						node = node->next;
+						++count;
+					} catch (...) {
+						messageSummary += fmt::format("{:\t>{}}[{}] <error reading message>\n"sv, "", tab_depth, count);
+						break;
+					}
+				}
+
+				return messageSummary;
+			}
+
 			class VirtualMachine
 			{
 			public:
@@ -1299,6 +1529,19 @@ namespace Crash::Introspection::SSE
 					} catch (...) {}
 
 					try {
+						constexpr std::size_t MAX_MESSAGES = 3;
+						auto messageSummary = format_function_message_queue(object->funcMsgQueue.head, MAX_MESSAGES, tab_depth);
+						if (!messageSummary.empty() && messageSummary != "\n"s) {
+							if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
+								messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
+							}
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Queued Function Messages"sv, "", tab_depth),
+								messageSummary);
+						}
+					} catch (...) {}
+
+					try {
 						a_results.emplace_back(
 							fmt::format("{:\t>{}}Object Table Size", "", tab_depth),
 							fmt::format("{}", object->objectTable.size()));
@@ -1315,6 +1558,47 @@ namespace Crash::Introspection::SSE
 							fmt::format("{:\t>{}}Running Stacks Count", "", tab_depth),
 							fmt::format("{}", object->allRunningStacks.size()));
 					} catch (...) {}
+				}
+			};
+
+			class FunctionMessageQueue
+			{
+			public:
+				using value_type = RE::BSTCommonLLMessageQueue<RE::BSScript::Internal::FunctionMessage>;
+
+				static void filter(
+					filter_results& a_results,
+					const void* a_ptr, int tab_depth = 0) noexcept
+				{
+					const auto queue = static_cast<const value_type*>(a_ptr);
+					if (!queue) {
+						return;
+					}
+
+					try {
+						// Add queue metadata
+						try {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Head"sv, "", tab_depth),
+								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue->head)));
+						} catch (...) {}
+
+						constexpr std::size_t MAX_MESSAGES = 5;
+						auto messageSummary = format_function_message_queue(queue->head, MAX_MESSAGES, tab_depth);
+						if (!messageSummary.empty() && messageSummary != "\n"s) {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
+								messageSummary);
+						} else {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Queue Status"sv, "", tab_depth),
+								"Empty"s);
+						}
+					} catch (...) {
+						a_results.emplace_back(
+							fmt::format("{:\t>{}}Queue Error"sv, "", tab_depth),
+							"<failed to read queue>"s);
+					}
 				}
 			};
 		}
@@ -2224,6 +2508,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
 				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
 				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
+				std::make_pair(".?AV?$BSTCommonLLMessageQueue@UFunctionMessage@Internal@BSScript@@@@"sv, SSE::BSScript::Internal::FunctionMessageQueue::filter),
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
 				std::make_pair(".?AVScriptEffect@@"sv, SSE::ScriptEffect::filter),
 				std::make_pair(".?AVServingThread@JobListManager@@"sv, SSE::ServingThread::filter),
