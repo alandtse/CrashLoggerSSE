@@ -538,3 +538,4 @@ contrib/Distribution/**/*.pdb
 contrib/Distribution/**/*.pex
 contrib/Distribution/*
 !contrib/Distribution/Config
+_codeql_detected_source_root
