@@ -547,6 +547,126 @@ namespace Crash
 			}
 		}
 
+		// Helper struct to encapsulate PDB session setup
+		struct PdbSession
+		{
+			CComPtr<IDiaDataSource> pSource;
+			CComPtr<IDiaSession> pSession;
+			CComPtr<IDiaSymbol> globalSymbol;
+			bool com_initialized_here = false;
+
+			~PdbSession()
+			{
+				if (com_initialized_here) {
+					CoUninitialize();
+				}
+			}
+
+			// Open a PDB session for the given module
+			bool open(std::string_view a_name, uintptr_t a_offset)
+			{
+				std::filesystem::path dllPath{ a_name };
+				std::string dll_path{ a_name };
+				if (!dllPath.has_parent_path()) {
+					dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
+				}
+
+				HRESULT hr = S_OK;
+
+				// Initialize COM
+				hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+				if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+					auto error = print_hr_failure(hr);
+					logger::info("Failed to initialize COM library for dll {}+{:07X}\t{}", a_name, a_offset, error);
+					return false;
+				}
+				com_initialized_here = SUCCEEDED(hr);
+
+				// Load DIA data source
+				auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
+				hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource), (void**)&pSource);
+				if (FAILED(hr)) {
+					auto error = print_hr_failure(hr);
+					logger::info("Failed to manually load msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
+
+					// Try registered copy
+					if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
+						auto error = print_hr_failure(hr);
+						logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
+						return false;
+					}
+				}
+
+				// Prepare file paths
+				wchar_t wszFilename[_MAX_PATH];
+				wchar_t wszPath[_MAX_PATH];
+				std::wstring dll_path_w = utf8_to_utf16(dll_path);
+				wcsncpy(wszFilename, dll_path_w.c_str(), sizeof(wszFilename) / sizeof(wchar_t));
+				wszFilename[_MAX_PATH - 1] = L'\0';
+
+				// Get symcache config
+				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
+				std::string symcache = debugConfig.symcache;
+
+				// Use namespace-level atomics for shared symcache validation state
+				if (!symcacheChecked.load(std::memory_order_acquire)) {
+					if (!symcache.empty() && std::filesystem::exists(symcache) && std::filesystem::is_directory(symcache)) {
+						logger::info("Symcache found at {}", symcache);
+						symcacheValid.store(true, std::memory_order_release);
+					} else {
+						logger::info("Symcache not found at {}", symcache.empty() ? "not defined" : symcache);
+					}
+					symcacheChecked.store(true, std::memory_order_release);
+				}
+
+				// Build search paths
+				std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
+				if (symcacheValid.load(std::memory_order_acquire)) {
+					searchPaths.push_back(fmt::format(fmt::runtime("cache*{}"s), symcache.c_str()));
+				}
+
+				// Try to load PDB
+				bool foundPDB = false;
+				for (const auto& path : searchPaths) {
+					std::wstring path_w = utf8_to_utf16(path);
+					wcsncpy(wszPath, path_w.c_str(), sizeof(wszPath) / sizeof(wchar_t));
+					wszPath[_MAX_PATH - 1] = L'\0';
+
+					logger::info("Attempting to find pdb for {}+{:07X} with path {}", a_name, a_offset, path);
+					hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
+					if (FAILED(hr)) {
+						auto error = print_hr_failure(hr);
+						logger::info("Failed to open pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
+						continue;
+					}
+					foundPDB = true;
+					break;
+				}
+
+				if (!foundPDB) {
+					return false;
+				}
+
+				logger::info("Successfully opened pdb for dll {}+{:07X}", a_name, a_offset);
+
+				// Open session
+				if (FAILED(hr = pSource->openSession(&pSession))) {
+					auto error = print_hr_failure(hr);
+					logger::info("Failed to openSession for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
+					return false;
+				}
+
+				// Get global scope
+				if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
+					auto error = print_hr_failure(hr);
+					logger::info("Failed to get_globalScope for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
+					return false;
+				}
+
+				return true;
+			}
+		};
+
 		//https://stackoverflow.com/questions/68412597/determining-source-code-filename-and-line-for-function-using-visual-studio-pdb
 		std::string pdb_details(std::string_view a_name, uintptr_t a_offset)
 		{
@@ -554,142 +674,33 @@ namespace Crash
 			std::lock_guard l{ sync };
 			std::string result;
 
-			std::filesystem::path dllPath{ a_name };
-			std::string dll_path{ a_name };  // Construct from string_view safely
-			if (!dllPath.has_parent_path()) {
-				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
+			// Use shared PDB session helper
+			PdbSession session;
+			if (!session.open(a_name, a_offset)) {
+				return result;
 			}
 
-			auto rva = static_cast<DWORD>(a_offset);
-			CComPtr<IDiaDataSource> pSource;
+			const auto rva = static_cast<DWORD>(a_offset);
 			HRESULT hr = S_OK;
 
-			// Initialize COM - handle the case where it's already initialized
-			hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-			if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
-				// Only fail if it's not already initialized with a different mode
-				auto error = print_hr_failure(hr);
-				logger::info("Failed to initialize COM library for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				return result;
-			}
-
-			// Track if we need to uninitialize COM later
-			bool com_initialized_here = SUCCEEDED(hr);
-
-			// Attempt to load msdia140.dll
-			auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
-			hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource), (void**)&pSource);
-			if (FAILED(hr)) {
-				auto error = print_hr_failure(hr);
-				logger::info("Failed to manually load msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
-
-				// Try registered copy
-				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
-					auto error = print_hr_failure(hr);
-					logger::info("Failed to load registered msdia140.dll for dll {}+{:07X}\t{}", a_name, a_offset, error);
-					if (com_initialized_here)
-						CoUninitialize();
-					return result;
-				}
-			}
-
-			wchar_t wszFilename[_MAX_PATH];
-			wchar_t wszPath[_MAX_PATH];
-
-			// Convert UTF-8 dll_path to UTF-16
-			std::wstring dll_path_w = utf8_to_utf16(dll_path);
-			wcsncpy(wszFilename, dll_path_w.c_str(), sizeof(wszFilename) / sizeof(wchar_t));
-
-			const auto& debugConfig = Settings::GetSingleton()->GetDebug();
-			std::string symcache = debugConfig.symcache;
-
-			// Symcache handling (already UTF-8)
-			static bool symcacheChecked = false;
-			static bool symcacheValid = false;
-
-			if (!symcacheChecked) {
-				if (!symcache.empty() && std::filesystem::exists(symcache) && std::filesystem::is_directory(symcache)) {
-					logger::info("Symcache found at {}", symcache);
-					symcacheValid = true;
-				} else {
-					logger::info("Symcache not found at {}", symcache.empty() ? "not defined" : symcache);
-				}
-				symcacheChecked = true;
-			}
-
-			std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
-
-			if (symcacheValid) {
-				searchPaths.push_back(fmt::format(fmt::runtime("cache*{}"s), symcache.c_str()));
-			}
-
-			bool foundPDB = false;
-			for (const auto& path : searchPaths) {
-				// Convert UTF-8 path to UTF-16
-				std::wstring path_w = utf8_to_utf16(path);
-				wcsncpy(wszPath, path_w.c_str(), sizeof(wszPath) / sizeof(wchar_t));
-
-				logger::info("Attempting to find pdb for {}+{:07X} with path {}", a_name, a_offset, path);
-				hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
-				if (FAILED(hr)) {
-					auto error = print_hr_failure(hr);
-					logger::info("Failed to open pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-					continue;
-				}
-				foundPDB = true;
-				break;
-			}
-
-			if (!foundPDB) {
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
-			logger::info("Successfully opened pdb for dll {}+{:07X}", a_name, a_offset);
-
-			// Rest of the PDB processing logic remains the same
-			// No other changes needed for UTF-8 handling
-			CComPtr<IDiaSession> pSession;
-			CComPtr<IDiaSymbol> globalSymbol;
 			CComPtr<IDiaEnumTables> enumTables;
 			CComPtr<IDiaEnumSymbolsByAddr> enumSymbolsByAddr;
 
-			if (FAILED(hr = pSource->openSession(&pSession))) {
-				auto error = print_hr_failure(hr);
-				logger::info("Failed to open IDiaSession for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
-			if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
-				auto error = print_hr_failure(hr);
-				logger::info("Failed to getGlobalScope for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
-			if (FAILED(hr = pSession->getEnumTables(&enumTables))) {
+			if (FAILED(hr = session.pSession->getEnumTables(&enumTables))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getEnumTables for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here)
-					CoUninitialize();
 				return result;
 			}
 
-			if (FAILED(hr = pSession->getSymbolsByAddr(&enumSymbolsByAddr))) {
+			if (FAILED(hr = session.pSession->getSymbolsByAddr(&enumSymbolsByAddr))) {
 				auto error = print_hr_failure(hr);
 				logger::info("Failed to getSymbolsByAddr for pdb for dll {}+{:07X}\t{}", a_name, a_offset, error);
-				if (com_initialized_here)
-					CoUninitialize();
 				return result;
 			}
 
 			CComPtr<IDiaSymbol> publicSymbol;
-			if (pSession->findSymbolByRVA(rva, SymTagEnum::SymTagPublicSymbol, &publicSymbol) == S_OK) {
-				auto publicResult = processSymbol(publicSymbol, pSession, rva, a_name, a_offset, result);
+			if (session.pSession->findSymbolByRVA(rva, SymTagEnum::SymTagPublicSymbol, &publicSymbol) == S_OK) {
+				auto publicResult = processSymbol(publicSymbol, session.pSession, rva, a_name, a_offset, result);
 
 				// Log the public result (already demangled in processSymbol)
 				logger::info("Public symbol found for {}+{:07X}: {}", a_name, a_offset, publicResult);
@@ -697,8 +708,8 @@ namespace Crash
 				DWORD privateRva;
 				CComPtr<IDiaSymbol> privateSymbol;
 				if (publicSymbol->get_targetRelativeVirtualAddress(&privateRva) == S_OK &&
-					pSession->findSymbolByRVA(privateRva, SymTagEnum::SymTagFunction, &privateSymbol) == S_OK) {
-					auto privateResult = processSymbol(privateSymbol, pSession, privateRva, a_name, a_offset, result);
+					session.pSession->findSymbolByRVA(privateRva, SymTagEnum::SymTagFunction, &privateSymbol) == S_OK) {
+					auto privateResult = processSymbol(privateSymbol, session.pSession, privateRva, a_name, a_offset, result);
 
 					// Log the private result (already demangled in processSymbol)
 					logger::info("Private symbol found for {}+{:07X}: {}", a_name, a_offset, privateResult);
@@ -718,8 +729,6 @@ namespace Crash
 				logger::info("No public symbol found for {}+{:07X}", a_name, a_offset);
 			}
 
-			if (com_initialized_here)
-				CoUninitialize();
 			return result;
 		}
 
@@ -729,97 +738,22 @@ namespace Crash
 			std::lock_guard l{ sync };
 			std::string result;
 
-			std::filesystem::path dllPath{ a_name };
-			std::string dll_path{ a_name };  // Construct from string_view safely
-			if (!dllPath.has_parent_path()) {
-				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
+			// Use shared PDB session helper
+			PdbSession session;
+			if (!session.open(a_name, a_offset)) {
+				return result;
 			}
 
 			const auto rva = static_cast<DWORD>(a_offset);
-			CComPtr<IDiaDataSource> pSource;
 			HRESULT hr = S_OK;
 
-			hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-			if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
-				return result;
-			}
-			bool com_initialized_here = SUCCEEDED(hr);
-
-			auto* msdia_dll = L"Data/SKSE/Plugins/msdia140.dll";
-			hr = NoRegCoCreate(msdia_dll, CLSID_DiaSource, __uuidof(IDiaDataSource), (void**)&pSource);
-			if (FAILED(hr)) {
-				if (FAILED(hr = CoCreateInstance(CLSID_DiaSource, NULL, CLSCTX_INPROC_SERVER, __uuidof(IDiaDataSource), (void**)&pSource))) {
-					if (com_initialized_here)
-						CoUninitialize();
-					return result;
-				}
-			}
-
-			wchar_t wszFilename[_MAX_PATH];
-			wchar_t wszPath[_MAX_PATH];
-			std::wstring dll_path_w = utf8_to_utf16(dll_path);
-			wcsncpy(wszFilename, dll_path_w.c_str(), sizeof(wszFilename) / sizeof(wchar_t));
-			wszFilename[_MAX_PATH - 1] = L'\0';  // Ensure NUL-termination
-
-			const auto& debugConfig = Settings::GetSingleton()->GetDebug();
-			std::string symcache = debugConfig.symcache;
-			static bool symcacheChecked = false;
-			static bool symcacheValid = false;
-			if (!symcacheChecked) {
-				if (!symcache.empty() && std::filesystem::exists(symcache) && std::filesystem::is_directory(symcache)) {
-					symcacheValid = true;
-				}
-				symcacheChecked = true;
-			}
-
-			std::vector<std::string> searchPaths = { Crash::PDB::sPluginPath.data() };
-			if (symcacheValid) {
-				searchPaths.push_back(fmt::format(fmt::runtime("cache*{}"s), symcache.c_str()));
-			}
-
-			bool foundPDB = false;
-			for (const auto& path : searchPaths) {
-				std::wstring path_w = utf8_to_utf16(path);
-				wcsncpy(wszPath, path_w.c_str(), sizeof(wszPath) / sizeof(wchar_t));
-				hr = pSource->loadDataForExe(wszFilename, wszPath, NULL);
-				if (FAILED(hr)) {
-					continue;
-				}
-				foundPDB = true;
-				break;
-			}
-
-			if (!foundPDB) {
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
-			CComPtr<IDiaSession> pSession;
-			CComPtr<IDiaSymbol> globalSymbol;
-			if (FAILED(hr = pSource->openSession(&pSession))) {
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
-			if (FAILED(hr = pSession->get_globalScope(&globalSymbol))) {
-				if (com_initialized_here)
-					CoUninitialize();
-				return result;
-			}
-
 			CComPtr<IDiaSymbol> funcSymbol;
-			if (FAILED(pSession->findSymbolByRVA(rva, SymTagFunction, &funcSymbol)) || !funcSymbol) {
-				if (com_initialized_here)
-					CoUninitialize();
+			if (FAILED(hr = session.pSession->findSymbolByRVA(rva, SymTagFunction, &funcSymbol)) || !funcSymbol) {
 				return result;
 			}
 
 			CComPtr<IDiaEnumSymbols> enumSymbols;
-			if (FAILED(funcSymbol->findChildren(SymTagData, NULL, nsNone, &enumSymbols)) || !enumSymbols) {
-				if (com_initialized_here)
-					CoUninitialize();
+			if (FAILED(hr = funcSymbol->findChildren(SymTagData, NULL, nsNone, &enumSymbols)) || !enumSymbols) {
 				return result;
 			}
 
@@ -874,8 +808,6 @@ namespace Crash
 				result = joined;
 			}
 
-			if (com_initialized_here)
-				CoUninitialize();
 			return result;
 		}
 
