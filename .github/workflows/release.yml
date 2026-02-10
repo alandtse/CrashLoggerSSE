@@ -65,7 +65,7 @@ jobs:
     name: Upload GitHub Release
     needs: [semantic-release, build]
     runs-on: ubuntu-latest
-    if: needs.semantic-release.outputs.new_release_published == 'true' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (needs.semantic-release.result == 'success' && needs.semantic-release.outputs.new_release_published == 'true')
 
     steps:
       - name: Download artifact
@@ -78,8 +78,8 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file_glob: true
-          file: CrashLogger_${{ needs.semantic-release.outputs.new_release_version || inputs.version }}.7z
-          tag: ${{ needs.semantic-release.outputs.new_release_git_tag || format('v{0}', inputs.version) }}
+          file: CrashLogger_${{ needs.semantic-release.outputs.new_release_version || needs.build.outputs.normalized_version }}.7z
+          tag: ${{ needs.semantic-release.outputs.new_release_git_tag || format('v{0}', needs.build.outputs.normalized_version) }}
           overwrite: true
 
   upload-to-nexus:
@@ -96,7 +96,7 @@ jobs:
       nexus_mod_id: 59818
       artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.semantic-release.outputs.new_release_version) || '' }}
       tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
-      mod_version: ${{ needs.semantic-release.outputs.new_release_version || inputs.version }}
+      mod_version: ${{ needs.semantic-release.outputs.new_release_version || needs.build.outputs.normalized_version }}
       mod_filename: CrashLogger
       changelog: ${{ needs.semantic-release.outputs.new_release_notes }}
       file_description: |
