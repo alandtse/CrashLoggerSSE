@@ -59,6 +59,7 @@ jobs:
       preset: Release-MSVC
       version: ${{ needs.semantic-release.outputs.new_release_version }}
       upload-artifact: true
+      ref: main
 
   upload-github-release:
     name: Upload GitHub Release

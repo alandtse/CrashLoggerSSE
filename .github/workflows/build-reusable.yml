@@ -24,6 +24,11 @@ on:
         type: boolean
         required: false
         default: false
+      ref:
+        description: 'Git ref to checkout'
+        type: string
+        required: false
+        default: ''
     outputs:
       artifact-name:
         description: 'Name of the uploaded artifact'
@@ -42,6 +47,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: "recursive"
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Extract vcpkg baseline from vcpkg.json
         id: vcpkg_baseline
@@ -72,18 +78,28 @@ jobs:
           configurePreset: ${{ inputs.preset }}
           buildPreset: ${{ inputs.preset }}
 
+      - name: Extract project version from CMakeLists.txt
+        id: project_version
+        shell: pwsh
+        run: |
+          $cmakeLists = Get-Content CMakeLists.txt
+          $versionLine = $cmakeLists | Where-Object { $_ -match 'set\(VERSION\s+(.+)\)' }
+          if ($versionLine) {
+            $version = $matches[1]
+            echo "version=$version" >> $env:GITHUB_OUTPUT
+            echo "Extracted version: $version"
+          } else {
+            echo "Version not found in CMakeLists.txt"
+            exit 1
+          }
+
       - name: Set artifact info
         id: artifact_info
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}"
-          if ($version) {
-            $artifactName = "CrashLogger_$version"
-            $artifactPath = "build/release-msvc/CrashLogger_$version.7z"
-          } else {
-            $artifactName = "CrashLogger"
-            $artifactPath = "build/release-msvc/CrashLogger.7z"
-          }
+          $version = "${{ steps.project_version.outputs.version }}"
+          $artifactName = "CrashLogger_$version"
+          $artifactPath = "build/release-msvc/CrashLogger_$version.7z"
           echo "artifact-name=$artifactName" >> $env:GITHUB_OUTPUT
           echo "artifact-path=$artifactPath" >> $env:GITHUB_OUTPUT
 
