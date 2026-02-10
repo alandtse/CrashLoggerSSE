@@ -2387,8 +2387,14 @@ namespace Crash::Introspection
 			}
 
 			// Check if pointer is in a heap allocation
-			if (auto heap_info = Heap::analyze_heap_pointer(a_ptr); heap_info) {
-				return make_result<HeapPointer>(a_ptr, *heap_info);
+			// Wrap in try-catch since analyze_heap_pointer can throw (e.g., OOM during crash)
+			try {
+				if (auto heap_info = Heap::analyze_heap_pointer(a_ptr); heap_info) {
+					return make_result<HeapPointer>(a_ptr, *heap_info);
+				}
+			} catch (...) {
+				// Swallow exception and fall back to basic pointer analysis
+				// (better to lose heap metadata than the entire crash log)
 			}
 
 			return make_result<Pointer>(a_ptr, a_modules);
