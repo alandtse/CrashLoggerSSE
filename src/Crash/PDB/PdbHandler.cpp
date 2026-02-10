@@ -490,6 +490,7 @@ namespace Crash
 				BSTR name{};
 				if (symbol->get_name(&name) == S_OK && name) {
 					const auto converted = ConvertBSTRToMBS(name);
+					::SysFreeString(name);  // Free BSTR to prevent memory leak
 					return demangle(converted);
 				}
 				return "";
@@ -554,7 +555,7 @@ namespace Crash
 			std::string result;
 
 			std::filesystem::path dllPath{ a_name };
-			std::string dll_path = a_name.data();
+			std::string dll_path{ a_name };  // Construct from string_view safely
 			if (!dllPath.has_parent_path()) {
 				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
 			}
@@ -729,7 +730,7 @@ namespace Crash
 			std::string result;
 
 			std::filesystem::path dllPath{ a_name };
-			std::string dll_path = a_name.data();
+			std::string dll_path{ a_name };  // Construct from string_view safely
 			if (!dllPath.has_parent_path()) {
 				dll_path = Crash::PDB::sPluginPath.data() + dllPath.filename().string();
 			}
@@ -758,6 +759,7 @@ namespace Crash
 			wchar_t wszPath[_MAX_PATH];
 			std::wstring dll_path_w = utf8_to_utf16(dll_path);
 			wcsncpy(wszFilename, dll_path_w.c_str(), sizeof(wszFilename) / sizeof(wchar_t));
+			wszFilename[_MAX_PATH - 1] = L'\0';  // Ensure NUL-termination
 
 			const auto& debugConfig = Settings::GetSingleton()->GetDebug();
 			std::string symcache = debugConfig.symcache;
@@ -841,6 +843,7 @@ namespace Crash
 				std::string paramName;
 				if (child->get_name(&name) == S_OK && name) {
 					paramName = ConvertBSTRToMBS(name);
+					::SysFreeString(name);  // Free BSTR to prevent memory leak
 				}
 
 				CComPtr<IDiaSymbol> type;

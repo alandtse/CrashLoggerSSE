@@ -2108,19 +2108,20 @@ namespace Crash::Introspection
 				for (std::size_t i = 0; i < xInfo.size(); ++i) {
 					const auto& key = xInfo[i].first;
 					const auto& val = xInfo[i].second;
-					if (key.find("File") != std::string::npos) {
+					// Only match root-level keys (no leading tabs) to avoid matching nested "Full Name", "Skeleton Name", etc.
+					if (key == "File") {
 						rootFile = val;
 						rootFileIdx = i;
-					} else if (key.find("Name") != std::string::npos) {
+					} else if (key == "Name") {
 						rootName = val;
 						rootNameIdx = i;
-					} else if (key.find("FormID") != std::string::npos) {
+					} else if (key == "FormID") {
 						rootFormID = val;
 						rootFormIDIdx = i;
-					} else if (key.find("FormType") != std::string::npos) {
+					} else if (key == "FormType") {
 						rootFormType = val;
 						rootFormTypeIdx = i;
-					} else if (key.find("Flags") != std::string::npos) {
+					} else if (key == "Flags") {
 						rootFlags = val;
 						rootFlagsIdx = i;
 					}
@@ -2154,9 +2155,10 @@ namespace Crash::Introspection
 					const auto& key = xInfo[i].first;
 					const auto& val = xInfo[i].second;
 
-					if (key.find("File") != std::string::npos && val == rootFile)
+					// Match any depth for duplicate removal (starts with tab or exact match)
+					if ((key == "File" || key.find("\tFile") == 0) && val == rootFile)
 						remove[i] = true;
-					if (key.find("Name") != std::string::npos && val == rootName)
+					if ((key == "Name" || key.find("\tName") == 0) && val == rootName)
 						remove[i] = true;
 				}
 
@@ -2398,15 +2400,7 @@ namespace Crash::Introspection
 				return false;
 			}
 
-			// For references: check if parent cell is loaded
-			if (auto ref = a_form->AsReference()) {
-				auto cell = ref->GetParentCell();
-				return cell && cell->IsAttached();
-			} else {  // only process objects with references
-				return false;
-			}
-
-			// For actors: check if in process lists
+			// Check actors first (they inherit from TESObjectREFR, so must be checked before general reference check)
 			if (auto actor = a_form->As<RE::Actor>()) {
 				auto processLists = RE::ProcessLists::GetSingleton();
 				if (!processLists) {
@@ -2417,9 +2411,12 @@ namespace Crash::Introspection
 				return actor->GetActorRuntimeData().currentProcess != nullptr;
 			}
 
-			// Other form types: assume active if they exist and are looked up successfully
-			// (base objects, magic effects, etc. don't have loaded/unloaded state like refs)
-			return true;
+			// For other references: check if parent cell is loaded
+			if (auto ref = a_form->AsReference()) {
+				auto cell = ref->GetParentCell();
+				return cell && cell->IsAttached();
+			}
+			return false;
 		}
 
 		[[nodiscard]] bool check_mod_index(std::uint32_t a_formID)

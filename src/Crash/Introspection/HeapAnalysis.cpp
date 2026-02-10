@@ -61,6 +61,13 @@ namespace Crash::Introspection::Heap
 						continue;
 					}
 
+					// RAII scope guard to ensure HeapUnlock is called
+					struct HeapLockGuard
+					{
+						HANDLE heap;
+						~HeapLockGuard() { ::HeapUnlock(heap); }
+					} guard{ heap };
+
 					PROCESS_HEAP_ENTRY entry{};
 					bool found = false;
 					HeapInfo info{};
@@ -99,8 +106,6 @@ namespace Crash::Introspection::Heap
 						}
 					}
 
-					::HeapUnlock(heap);
-
 					if (found) {
 						return info;
 					}
@@ -113,7 +118,7 @@ namespace Crash::Introspection::Heap
 		}
 	}
 
-	std::optional<HeapInfo> analyze_heap_pointer(const void* a_ptr) noexcept
+	std::optional<HeapInfo> analyze_heap_pointer(const void* a_ptr)
 	{
 		if (!a_ptr) {
 			return std::nullopt;
@@ -132,7 +137,7 @@ namespace Crash::Introspection::Heap
 		return check_process_heaps(a_ptr, max_heaps, max_iterations);
 	}
 
-	std::string format_heap_info(const HeapInfo& a_info) noexcept
+	std::string format_heap_info(const HeapInfo& a_info)
 	{
 		std::string result = a_info.heap_type;
 		result += ", size=" + std::to_string(a_info.allocation_size);

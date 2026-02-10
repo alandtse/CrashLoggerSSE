@@ -14,8 +14,10 @@ namespace Crash::Introspection::Heap
 	};
 
 	// Analyze if a pointer is within a heap and extract metadata
-	[[nodiscard]] std::optional<HeapInfo> analyze_heap_pointer(const void* a_ptr) noexcept;
+	// Note: Can throw std::bad_alloc if memory exhausted during crash
+	[[nodiscard]] std::optional<HeapInfo> analyze_heap_pointer(const void* a_ptr);
 
 	// Get a human-readable description of heap metadata
-	[[nodiscard]] std::string format_heap_info(const HeapInfo& a_info) noexcept;
+	// Note: Can throw std::bad_alloc if memory exhausted during crash
+	[[nodiscard]] std::string format_heap_info(const HeapInfo& a_info);
 }

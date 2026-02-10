@@ -486,12 +486,22 @@ namespace Crash
 		{
 			const auto ip = a_exception.ExceptionAddress;
 			ZydisDisassembledInstruction instruction{};
-			if (!ZYAN_SUCCESS(ZydisDisassembleIntel(
-					/* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
-					/* runtime_address: */ reinterpret_cast<ZyanU64>(ip),
-					/* buffer:          */ reinterpret_cast<const ZyanU8*>(ip),
-					/* length:          */ 16,
-					/* instruction:     */ &instruction))) {
+
+			// Guard against reading invalid memory at ExceptionAddress
+			// If IP itself is corrupt, ZydisDisassembleIntel could trigger secondary AV
+			__try {
+				if (!ZYAN_SUCCESS(ZydisDisassembleIntel(
+						/* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+						/* runtime_address: */ reinterpret_cast<ZyanU64>(ip),
+						/* buffer:          */ reinterpret_cast<const ZyanU8*>(ip),
+						/* length:          */ 16,
+						/* instruction:     */ &instruction))) {
+					return;
+				}
+			} __except (EXCEPTION_EXECUTE_HANDLER) {
+				// Failed to read instruction bytes; IP likely points to unmapped/protected memory
+				a_log.critical("ACCESS VIOLATION ANALYSIS: Unable to disassemble instruction at 0x{:016X} (memory not readable)"sv,
+					reinterpret_cast<std::uintptr_t>(ip));
 				return;
 			}
 
@@ -511,7 +521,8 @@ namespace Crash
 
 				std::optional<std::uint64_t> effectiveAddress;
 				if (baseValue) {
-					effectiveAddress = *baseValue + displacement;
+					// Use signed arithmetic to handle negative displacements correctly
+					effectiveAddress = static_cast<std::uint64_t>(static_cast<std::intptr_t>(*baseValue) + displacement);
 					if (indexValue && scale > 0) {
 						effectiveAddress = *effectiveAddress + (*indexValue * scale);
 					}
