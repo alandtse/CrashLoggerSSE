@@ -1,0 +1,100 @@
+# Copyright (c) 2020-2021-2022 Luca Cappa
+# Released under the term specified in file LICENSE.txt
+# SPDX short identifier: MIT
+#
+# Reusable workflow for building CrashLogger
+# This workflow restores vcpkg artifacts from cache and builds using CMake with vcpkg toolchain
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      preset:
+        description: 'CMake preset to use for build'
+        type: string
+        required: false
+        default: 'Release-MSVC'
+      version:
+        description: 'Version string for the build'
+        type: string
+        required: false
+        default: ''
+      upload-artifact:
+        description: 'Whether to upload build artifact'
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      artifact-name:
+        description: 'Name of the uploaded artifact'
+        value: ${{ jobs.build.outputs.artifact-name }}
+      artifact-path:
+        description: 'Path to the built artifact'
+        value: ${{ jobs.build.outputs.artifact-path }}
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-latest
+    if: github.repository_owner == 'alandtse'
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+
+      - name: Extract vcpkg baseline from vcpkg.json
+        id: vcpkg_baseline
+        shell: pwsh
+        run: |
+          $vcpkgJson = Get-Content vcpkg.json | ConvertFrom-Json
+          $baseline = $vcpkgJson.'builtin-baseline'
+          echo "baseline=$baseline" >> $env:GITHUB_OUTPUT
+          echo "Using vcpkg baseline from vcpkg.json: $baseline"
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Restore artifacts, or setup vcpkg (do not install any package)
+        uses: lukka/run-vcpkg@v11
+        id: runvcpkg
+        with:
+          vcpkgDirectory: "${{ runner.workspace }}/b/vcpkg"
+          vcpkgGitCommitId: "${{ steps.vcpkg_baseline.outputs.baseline }}"
+          vcpkgJsonGlob: "/vcpkg.json"
+
+      - name: Prints output of run-vcpkg's action
+        run: echo "root='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_ROOT_OUT }}', triplet='${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}'"
+
+      - name: Run CMake with vcpkg.json manifest
+        uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
+          configurePreset: ${{ inputs.preset }}
+          buildPreset: ${{ inputs.preset }}
+
+      - name: Set artifact info
+        id: artifact_info
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          if ($version) {
+            $artifactName = "CrashLogger_$version"
+            $artifactPath = "build/release-msvc/CrashLogger_$version.7z"
+          } else {
+            $artifactName = "CrashLogger"
+            $artifactPath = "build/release-msvc/CrashLogger.7z"
+          }
+          echo "artifact-name=$artifactName" >> $env:GITHUB_OUTPUT
+          echo "artifact-path=$artifactPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        if: inputs.upload-artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.artifact_info.outputs.artifact-name }}
+          path: ${{ steps.artifact_info.outputs.artifact-path }}
+          if-no-files-found: error
+
+    outputs:
+      artifact-name: ${{ steps.artifact_info.outputs.artifact-name }}
+      artifact-path: ${{ steps.artifact_info.outputs.artifact-path }}

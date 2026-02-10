@@ -1,0 +1,12 @@
+name: PR Test Build
+
+on:
+  pull_request:
+
+jobs:
+  test-build:
+    name: Test Build
+    uses: ./.github/workflows/build-reusable.yml
+    with:
+      preset: Release-MSVC
+      upload-artifact: false
