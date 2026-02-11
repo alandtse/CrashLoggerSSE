@@ -655,52 +655,80 @@ namespace Crash
 				a_log.critical("In-Page Error: Tried to {} memory at 0x{:012X}, NTSTATUS: 0x{:08X}"sv, accessType, faultAddress, ntStatus);
 			} else if (IsCppException(a_exception)) {
 				// Parse and display C++ exception details
-				if (const auto cppExInfo = ParseCppException(a_exception)) {
-					a_log.critical("");
-					a_log.critical("C++ EXCEPTION:");
+				// Wrap entire C++ exception parsing in try-catch to prevent secondary crashes
+				try {
+					if (const auto cppExInfo = ParseCppException(a_exception)) {
+						a_log.critical("");
+						a_log.critical("C++ EXCEPTION:");
 
-					// Use existing introspection system to analyze the exception object
-					const std::size_t addresses[] = { cppExInfo->objectAddress };
-					const auto analysis = Introspection::analyze_data(addresses, a_modules);
+						// Use existing introspection system to analyze the exception object
+						try {
+							const std::size_t addresses[] = { cppExInfo->objectAddress };
+							const auto analysis = Introspection::analyze_data(addresses, a_modules);
 
-					if (!analysis.empty() && !analysis[0].empty()) {
-						// The introspection system provides full type information with details
-						a_log.critical("\tType: {}"sv, analysis[0]);
+							if (!analysis.empty() && !analysis[0].empty()) {
+								// The introspection system provides full type information with details
+								a_log.critical("\tType: {}"sv, analysis[0]);
+							} else {
+								// Fallback to our manual parsing if introspection fails
+								a_log.critical("\tType: {}"sv, cppExInfo->typeName);
+							}
+						} catch (...) {
+							// If introspection fails, use fallback type name
+							a_log.critical("\tType: {}"sv, cppExInfo->typeName);
+						}
+
+						// Always try to extract additional info from the exception object (e.g., HRESULT)
+						try {
+							if (cppExInfo->what) {
+								a_log.critical("\tInfo: {}"sv, *cppExInfo->what);
+							}
+						} catch (...) {
+							a_log.critical("\tInfo: <failed to extract>"sv);
+						}
+
+						// Show the throw location if available (extracted from callstack)
+						try {
+							if (!a_throwLocation.empty()) {
+								a_log.critical("\tThrow Location: {}"sv, a_throwLocation);
+							}
+						} catch (...) {
+							a_log.critical("\tThrow Location: <failed to format>"sv);
+						}
+
+						// Log module information
+						try {
+							const auto modulePtr = reinterpret_cast<const void*>(cppExInfo->moduleBase);
+							const auto mod = Introspection::get_module_for_pointer(modulePtr, a_modules);
+							if (mod) {
+								a_log.critical("\tModule: {}"sv, mod->name());
+							}
+						} catch (...) {
+							a_log.critical("\tModule: <failed to determine>"sv);
+						}
 					} else {
-						// Fallback to our manual parsing if introspection fails
-						a_log.critical("\tType: {}"sv, cppExInfo->typeName);
+						a_log.critical("C++ Exception: Failed to parse exception details");
 					}
-
-					// Always try to extract additional info from the exception object (e.g., HRESULT)
-					if (cppExInfo->what) {
-						a_log.critical("\tInfo: {}"sv, *cppExInfo->what);
-					}
-
-					// Show the throw location if available (extracted from callstack)
-					if (!a_throwLocation.empty()) {
-						a_log.critical("\tThrow Location: {}"sv, a_throwLocation);
-					}
-
-					// Log module information
-					const auto modulePtr = reinterpret_cast<const void*>(cppExInfo->moduleBase);
-					const auto mod = Introspection::get_module_for_pointer(modulePtr, a_modules);
-					if (mod) {
-						a_log.critical("\tModule: {}"sv, mod->name());
-					}
-				} else {
-					a_log.critical("C++ Exception: Failed to parse exception details");
+				} catch (const std::exception& e) {
+					a_log.critical("C++ Exception: Fatal error during parsing - {}"sv, e.what());
+				} catch (...) {
+					a_log.critical("C++ Exception: Fatal error during parsing (unknown exception)"sv);
 				}
 			} else if (a_exception.NumberParameters > 0) {
 				a_log.critical("Exception Information Parameters:");
 				for (std::size_t i = 0; i < a_exception.NumberParameters; ++i) {
-					const auto param = a_exception.ExceptionInformation[i];
-					const std::size_t params[] = { param };
-					const auto analysis = Introspection::analyze_data(params, a_modules);
+					try {
+						const auto param = a_exception.ExceptionInformation[i];
+						const std::size_t params[] = { param };
+						const auto analysis = Introspection::analyze_data(params, a_modules);
 
-					if (!analysis.empty() && !analysis[0].empty()) {
-						a_log.critical("\tParameter[{}]: 0x{:012X} {}"sv, i, param, analysis[0]);
-					} else {
-						a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, param);
+						if (!analysis.empty() && !analysis[0].empty()) {
+							a_log.critical("\tParameter[{}]: 0x{:012X} {}"sv, i, param, analysis[0]);
+						} else {
+							a_log.critical("\tParameter[{}]: 0x{:012X}"sv, i, param);
+						}
+					} catch (...) {
+						a_log.critical("\tParameter[{}]: <failed to analyze>"sv, i);
 					}
 				}
 			}
@@ -1343,6 +1371,7 @@ next_label:;
 			_set_se_translator(seh_translator);
 
 			std::filesystem::path crashLogPath;
+			std::shared_ptr<spdlog::logger> log;
 
 			try {
 				const auto& debugConfig = Settings::GetSingleton()->GetDebug();
@@ -1357,7 +1386,8 @@ next_label:;
 
 				const auto modules = Modules::get_loaded_modules();
 				const std::span cmodules{ modules.begin(), modules.end() };
-				auto [log, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+				auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+				log = logPtr;
 				crashLogPath = logPath;
 
 				// Clean up old logs
@@ -1563,20 +1593,62 @@ next_label:;
 				log->flush();
 
 			} catch (const SEHException& se) {
-				// Log the SEH exception converted to a C++ exception
-				auto [log, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-				log->critical("SEH Exception caught: {} (Code: 0x{:X})", se.what(), se.code());
-				log->flush();
+				// Log the SEH exception to the existing log (or create new if needed)
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("SEH Exception occurred during crash log generation: {} (Code: 0x{:X})", se.what(), se.code());
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
+				}
 			} catch (const std::exception& e) {
-				// Log the C++ exception
-				auto [log, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-				log->critical("Caught C++ exception: {}", e.what());
-				log->flush();
+				// Log the C++ exception to the existing log (or create new if needed)
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("C++ exception occurred during crash log generation: {}", e.what());
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
+				}
 			} catch (...) {
-				// Catch any other unknown exception
-				auto [log, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-				log->critical("Caught an unknown exception");
-				log->flush();
+				// Catch any other unknown exception to the existing log (or create new if needed)
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("Unknown exception occurred during crash log generation");
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
+				}
 			}
 
 			// Upload crash log to pastebin if enabled
