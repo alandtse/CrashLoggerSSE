@@ -214,9 +214,61 @@ namespace Crash
 			// Attempt to treat the object as a std::exception-derived class
 			// This is dangerous and relies on the object being valid
 
-			// Try reading as DX::com_exception (DirectXTK exception type)
+			// First, try extracting std::exception::what() message (most common case)
+			// std::exception layout (MSVC):
+			// - vtable pointer (8 bytes)
+			// - _Mywhat pointer (8 bytes) or inline storage
+
+			// Get the vtable pointer
+			std::uintptr_t vtablePtr;
+			if (SafeRead(objectAddress, vtablePtr)) {
+				// Get the what() function pointer from vtable
+				// The what() function is typically at offset 8 in the vtable (after destructor)
+				std::uintptr_t whatFuncPtr;
+				if (SafeRead(vtablePtr + 8, whatFuncPtr)) {
+					// We can't safely call what() directly because:
+					// 1. The object might not be a std::exception
+					// 2. Calling virtual functions from a crash handler is risky
+					// Instead, try to read the _Mywhat member directly
+
+					// For std::exception, the message is usually stored at offset 8 (after vtable)
+					std::uintptr_t messagePtr;
+					if (SafeRead(objectAddress + 8, messagePtr)) {
+						// Check if messagePtr looks valid (not null, in reasonable range)
+						if (messagePtr != 0 && messagePtr >= 0x1000) {
+							// Try to read the string (with a reasonable limit)
+							char messageBuffer[512];
+							std::memset(messageBuffer, 0, sizeof(messageBuffer));
+
+							bool validString = true;
+							for (size_t i = 0; i < sizeof(messageBuffer) - 1; ++i) {
+								if (!SafeRead(messagePtr + i, messageBuffer[i])) {
+									validString = false;
+									break;
+								}
+								if (messageBuffer[i] == '\0') {
+									break;
+								}
+								// Sanity check: only printable ASCII characters and common whitespace
+								const auto ch = static_cast<unsigned char>(messageBuffer[i]);
+								if ((ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r') || ch > 0x7E) {
+									validString = false;
+									break;
+								}
+							}
+
+							if (validString && messageBuffer[0] != '\0') {
+								return std::string(messageBuffer);
+							}
+						}
+					}
+				}
+			}
+
+			// If std::exception::what() extraction failed, try reading as DX::com_exception (DirectXTK exception type)
 			// DX::com_exception layout varies but HRESULT is typically stored after the vtable and base class
 			// Try multiple common offsets: 8, 16, 24, 32 (covering various std::exception implementations)
+			// NOTE: We do this AFTER trying std::exception::what() to avoid false positives from pointer fragments
 			const std::size_t hresultOffsets[] = { 8, 16, 24, 32 };
 
 			for (auto offset : hresultOffsets) {
@@ -271,60 +323,6 @@ namespace Crash
 						}
 					}
 				}
-			}
-
-			// std::exception layout (MSVC):
-			// - vtable pointer (8 bytes)
-			// - _Mywhat pointer (8 bytes) or inline storage
-
-			// Get the vtable pointer
-			std::uintptr_t vtablePtr;
-			if (!SafeRead(objectAddress, vtablePtr)) {
-				return std::nullopt;
-			}
-
-			// Get the what() function pointer from vtable
-			// The what() function is typically at offset 8 in the vtable (after destructor)
-			std::uintptr_t whatFuncPtr;
-			if (!SafeRead(vtablePtr + 8, whatFuncPtr)) {
-				return std::nullopt;
-			}
-
-			// We can't safely call what() directly because:
-			// 1. The object might not be a std::exception
-			// 2. Calling virtual functions from a crash handler is risky
-			// Instead, try to read the _Mywhat member directly
-
-			// For std::exception, the message is usually stored at offset 8 (after vtable)
-			std::uintptr_t messagePtr;
-			if (!SafeRead(objectAddress + 8, messagePtr)) {
-				return std::nullopt;
-			}
-
-			// Check if messagePtr looks valid (not null, in reasonable range)
-			if (messagePtr == 0 || messagePtr < 0x1000) {
-				return std::nullopt;
-			}
-
-			// Try to read the string (with a reasonable limit)
-			char messageBuffer[512];
-			std::memset(messageBuffer, 0, sizeof(messageBuffer));
-
-			for (size_t i = 0; i < sizeof(messageBuffer) - 1; ++i) {
-				if (!SafeRead(messagePtr + i, messageBuffer[i])) {
-					return std::nullopt;
-				}
-				if (messageBuffer[i] == '\0') {
-					break;
-				}
-				// Sanity check: only printable ASCII characters and common whitespace
-				if ((messageBuffer[i] < 0x20 && messageBuffer[i] != '\t' && messageBuffer[i] != '\n' && messageBuffer[i] != '\r') || messageBuffer[i] > 0x7E) {
-					return std::nullopt;
-				}
-			}
-
-			if (messageBuffer[0] != '\0') {
-				return std::string(messageBuffer);
 			}
 
 			return std::nullopt;

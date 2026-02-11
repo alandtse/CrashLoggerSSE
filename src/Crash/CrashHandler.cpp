@@ -1594,40 +1594,61 @@ next_label:;
 
 			} catch (const SEHException& se) {
 				// Log the SEH exception to the existing log (or create new if needed)
-				if (!log) {
-					auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-					log = logPtr;
-					crashLogPath = logPath;
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("SEH Exception occurred during crash log generation: {} (Code: 0x{:X})", se.what(), se.code());
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
 				}
-				log->critical("");
-				log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
-				log->critical("SEH Exception occurred during crash log generation: {} (Code: 0x{:X})", se.what(), se.code());
-				log->critical("The crash log above may be incomplete.");
-				log->flush();
 			} catch (const std::exception& e) {
 				// Log the C++ exception to the existing log (or create new if needed)
-				if (!log) {
-					auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-					log = logPtr;
-					crashLogPath = logPath;
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("C++ exception occurred during crash log generation: {}", e.what());
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
 				}
-				log->critical("");
-				log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
-				log->critical("C++ exception occurred during crash log generation: {}", e.what());
-				log->critical("The crash log above may be incomplete.");
-				log->flush();
 			} catch (...) {
 				// Catch any other unknown exception to the existing log (or create new if needed)
-				if (!log) {
-					auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
-					log = logPtr;
-					crashLogPath = logPath;
+				// Wrap in try-catch to prevent std::terminate from noexcept function
+				try {
+					if (!log) {
+						auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
+						log = logPtr;
+						crashLogPath = logPath;
+					}
+					log->critical("");
+					log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
+					log->critical("Unknown exception occurred during crash log generation");
+					log->critical("The crash log above may be incomplete.");
+					log->flush();
+				} catch (...) {
+					// Last resort: can't create logger or log failed, just terminate
+					TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+					return EXCEPTION_CONTINUE_SEARCH;
 				}
-				log->critical("");
-				log->critical("===== CRASH LOGGER INTERNAL ERROR =====");
-				log->critical("Unknown exception occurred during crash log generation");
-				log->critical("The crash log above may be incomplete.");
-				log->flush();
 			}
 
 			// Upload crash log to pastebin if enabled
