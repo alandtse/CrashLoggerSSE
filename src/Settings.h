@@ -32,6 +32,11 @@ public:
 
 		// Thread context heuristics (label -> list of keywords)
 		std::vector<std::pair<std::string, std::vector<std::string>>> threadContextHeuristics;
+
+		// Developer crash testing features
+		bool enableCrashTestHotkey{ false };
+		std::vector<int> crashTestHotkey{ VK_CONTROL, VK_SHIFT, VK_F11 };
+		int crashTestType{ 0 };  // 0=access violation, 1=null deref, 2=C++ exception, 3=stack overflow, 4=divide by zero, 5=pure virtual call
 	};
 
 	[[nodiscard]] static Settings* GetSingleton();

@@ -48,6 +48,8 @@ set(sources
         src/Crash/CppException.h
         src/Crash/CrashHandler.cpp
         src/Crash/CrashHandler.h
+        src/Crash/CrashTests.cpp
+        src/Crash/CrashTests.h
         src/Crash/ThreadDump.cpp
         src/Crash/ThreadDump.h
         src/Crash/CommonHeader.cpp
