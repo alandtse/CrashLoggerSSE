@@ -106,9 +106,9 @@ jobs:
     with:
       nexus_game_id: skyrimspecialedition
       nexus_mod_id: 59818
-      artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', needs.semantic-release.outputs.new_release_version) || '' }}
+      artifact_name: ${{ needs.semantic-release.outputs.new_release_published == 'true' && format('CrashLogger_{0}', startsWith(needs.semantic-release.outputs.new_release_version, 'v') && substring(needs.semantic-release.outputs.new_release_version, 1) || needs.semantic-release.outputs.new_release_version) || '' }}
       tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
-      mod_version: ${{ needs.semantic-release.outputs.new_release_version || inputs.version }}
+      mod_version: ${{ needs.semantic-release.outputs.new_release_version && (startsWith(needs.semantic-release.outputs.new_release_version,'v') && substring(needs.semantic-release.outputs.new_release_version,1) || needs.semantic-release.outputs.new_release_version) || inputs.version && (startsWith(inputs.version,'v') && substring(inputs.version,1) || inputs.version) || '' }}
       mod_filename: CrashLogger
       changelog: ${{ needs.semantic-release.outputs.new_release_notes }}
       file_description: |
