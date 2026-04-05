@@ -14,11 +14,18 @@
 #include "RE/B/BSTMessageQueue.h"
 #include "RE/F/FunctionMessage.h"
 
+#include "RE/B/BSFastNavmeshTriLocation.h"
+#include "RE/C/CombatNavmeshSearch.h"
 #include "RE/M/Main.h"
+#include "RE/N/NavMesh.h"
+#include "RE/N/NiSkinInstance.h"
+#include "RE/N/NiSkinPartition.h"
+#include "RE/P/PathingCell.h"
 #include "RE/P/ProcessLists.h"
 #include "RE/S/ShadowSceneNode.h"
 #include "RE/T/TESDataHandler.h"
 #include "RE/T/TESObjectCELL.h"
+#include "RE/T/TESWorldSpace.h"
 
 namespace Crash::Introspection::SSE
 {
@@ -564,8 +571,7 @@ namespace Crash::Introspection::SSE
 			try {
 				const auto geom = netimmerse_cast<RE::BSGeometry*>(object);
 				if (geom) {
-					const auto effect_ptr = geom->GetGeometryRuntimeData().properties[RE::BSGeometry::States::kEffect];
-					const auto effect = effect_ptr.get();
+					const auto effect = geom->GetGeometryRuntimeData().shaderProperty.get();
 					if (effect) {
 						// Check for lighting shader (most common)
 						const auto lighting_shader = netimmerse_cast<RE::BSLightingShaderProperty*>(effect);
@@ -764,6 +770,107 @@ namespace Crash::Introspection::SSE
 							"",
 							tab_depth),
 						quoted(filePath));
+			} catch (...) {}
+		}
+	};
+
+	class NiSkinPartition
+	{
+	public:
+		using value_type = RE::NiSkinPartition;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto count = object->numPartitions;
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}NumPartitions"sv, "", tab_depth),
+					fmt::format("{}"sv, count));
+				const auto parts = object->partitions.data();
+				if (parts && count > 0 && count <= 64) {
+					for (std::uint32_t i = 0; i < count; ++i) {
+						const auto buffData = parts[i].buffData;
+						if (buffData) {
+							const auto fmt_buf = [](const void* ptr) -> std::string {
+								if (!ptr)
+									return "null"s;
+								try {
+									if (auto info = Heap::analyze_heap_pointer(ptr); info)
+										return fmt::format("0x{:016X} [Heap: {}]"sv,
+											reinterpret_cast<std::uintptr_t>(ptr),
+											Heap::format_heap_info(*info));
+								} catch (...) {}
+								return fmt::format("0x{:016X}"sv, reinterpret_cast<std::uintptr_t>(ptr));
+							};
+							try {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}Partition[{}] RefCount"sv, "", tab_depth, i),
+									fmt::format("{}"sv, buffData->refCount));
+							} catch (...) {}
+							try {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}Partition[{}] VertexBuffer"sv, "", tab_depth, i),
+									fmt_buf(buffData->vertexBuffer));
+							} catch (...) {}
+							try {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}Partition[{}] IndexBuffer"sv, "", tab_depth, i),
+									fmt_buf(buffData->indexBuffer));
+							} catch (...) {}
+						}
+					}
+				}
+			} catch (...) {}
+		}
+	};
+
+	class NiSkinInstance
+	{
+	public:
+		using value_type = RE::NiSkinInstance;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto partition = object->skinPartition.get();
+				if (partition) {
+					std::string info = fmt::format("0x{:016X}"sv, reinterpret_cast<std::uintptr_t>(partition));
+					try {
+						if (auto heap = Heap::analyze_heap_pointer(partition); heap)
+							info += fmt::format(" [Heap: {}]"sv, Heap::format_heap_info(*heap));
+					} catch (...) {}
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}SkinPartition"sv, "", tab_depth),
+						std::move(info));
+				}
+			} catch (...) {}
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}NumBones"sv, "", tab_depth),
+					fmt::format("{}"sv, object->numMatrices));
+			} catch (...) {}
+			try {
+				const auto bones = object->bones;
+				if (bones) {
+					std::string info = fmt::format("0x{:016X}"sv, reinterpret_cast<std::uintptr_t>(bones));
+					try {
+						if (auto heap = Heap::analyze_heap_pointer(bones); heap)
+							info += fmt::format(" [Heap: {}]"sv, Heap::format_heap_info(*heap));
+					} catch (...) {}
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Bones"sv, "", tab_depth),
+						std::move(info));
+				}
 			} catch (...) {}
 		}
 	};
@@ -2107,6 +2214,139 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 		}
 	};
+	class NavMesh
+	{
+	public:
+		using value_type = RE::NavMesh;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			// Base TESForm info (FormID, plugin file, flags, EditorID)
+			TESForm<RE::NavMesh>::filter(a_results, a_ptr, tab_depth);
+
+			const auto navmesh = static_cast<const value_type*>(a_ptr);
+
+			try {
+				const auto triCount = navmesh->triangles.size();
+				const auto vertCount = navmesh->vertices.size();
+
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Triangles"sv, "", tab_depth),
+					fmt::format("{}", triCount));
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Vertices"sv, "", tab_depth),
+					fmt::format("{}", vertCount));
+
+				if (triCount > 0 && triCount <= 65536) {
+					std::size_t deletedTris = 0;
+					for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(triCount); ++i) {
+						if (navmesh->triangles[i].triangleFlags.any(RE::BSNavmeshTriangle::TriangleFlag::kDeleted)) {
+							++deletedTris;
+						}
+					}
+					if (deletedTris > 0) {
+						a_results.emplace_back(
+							fmt::format("{:\t>{}}Deleted Triangles"sv, "", tab_depth),
+							fmt::format("{} ({:.1f}%)", deletedTris, deletedTris * 100.0f / static_cast<float>(triCount)));
+					}
+				}
+			} catch (...) {}
+
+			// Parent cell via pathingCell (gives worldspace context)
+			try {
+				const auto& parentCellPtr = navmesh->parentCell;
+				if (parentCellPtr) {
+					const auto pathCell = reinterpret_cast<const RE::PathingCell*>(parentCellPtr.get());
+					const auto& cellInfo = pathCell->pathingCellInfo;
+
+					if (cellInfo.worldSpaceID != 0) {
+						const auto ws = RE::TESForm::LookupByID<RE::TESWorldSpace>(cellInfo.worldSpaceID);
+						if (ws) {
+							const auto wsName = ws->GetName();
+							if (wsName && wsName[0]) {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}WorldSpace"sv, "", tab_depth),
+									quoted(wsName));
+							}
+						}
+					}
+				}
+			} catch (...) {}
+		}
+	};
+
+	class CombatNavmeshSearch
+	{
+	public:
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			try {
+				// [object+0x1D0] = BSFastNavmeshTriLocation* confirmed via binary RE in both
+				// SE (SkyrimSE.exe Func2@0x1407F0D20) and VR (SkyrimVR.exe Func2@0x14080A280)
+				const auto* search = static_cast<const RE::CombatNavmeshSearch*>(a_ptr);
+				const auto* loc = search->bestGoal;
+
+				if (!loc) {
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Target NavMesh"sv, "", tab_depth),
+						"no goal found"s);
+					return;
+				}
+
+				const RE::BSNavmesh* navmesh = loc->navMesh;
+				const std::uint16_t triIdx = loc->triIndex;
+
+				if (!navmesh) {
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Target NavMesh"sv, "", tab_depth),
+						"null"s);
+					return;
+				}
+
+				const auto triCount = navmesh->triangles.size();
+				const auto vertCount = navmesh->vertices.size();
+
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Target Triangle"sv, "", tab_depth),
+					fmt::format("{}", triIdx));
+
+				if (triIdx >= triCount) {
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Target Triangle Status"sv, "", tab_depth),
+						fmt::format("OUT OF BOUNDS (index {} >= count {})", triIdx, triCount));
+				} else {
+					const auto& tri = navmesh->triangles[triIdx];
+
+					if (tri.triangleFlags.any(RE::BSNavmeshTriangle::TriangleFlag::kDeleted)) {
+						a_results.emplace_back(
+							fmt::format("{:\t>{}}Target Triangle Status"sv, "", tab_depth),
+							"DELETED"s);
+					}
+
+					for (int i = 0; i < 3; ++i) {
+						if (tri.vertices[i] >= vertCount) {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Target Triangle vertex[{}]"sv, "", tab_depth, i),
+								fmt::format("OUT OF BOUNDS (index {} >= count {})", tri.vertices[i], vertCount));
+						}
+					}
+
+					for (int i = 0; i < 3; ++i) {
+						const auto neighborIdx = tri.triangles[i];
+						if (neighborIdx != 0xFFFF && neighborIdx >= triCount) {
+							a_results.emplace_back(
+								fmt::format("{:\t>{}}Target Triangle neighbor[{}]"sv, "", tab_depth, i),
+								fmt::format("OUT OF BOUNDS (index {} >= count {})", neighborIdx, triCount));
+						}
+					}
+				}
+			} catch (...) {}
+		}
+	};
 }
 
 namespace Crash::Introspection
@@ -2419,30 +2659,35 @@ namespace Crash::Introspection
 				if (!rootFile.empty())
 					result += fmt::format(" ({})"sv, rootFile);
 
-				// Mark for removal
+				// Mark for removal.
+				// FormID and File are lifted into the header, so remove all occurrences.
+				// FormType and Flags are kept as expanded fields but deduplicated (keep first only).
+				// Multiple filter matches in the base-class hierarchy (e.g. NavMesh + TESForm)
+				// can emit the same fields more than once.
 				std::vector<bool> remove(xInfo.size(), false);
-				if (rootFileIdx != std::string::npos)
-					remove[rootFileIdx] = true;
-				if (rootNameIdx != std::string::npos)
-					remove[rootNameIdx] = true;
-				if (rootFormIDIdx != std::string::npos)
-					remove[rootFormIDIdx] = true;
-				if (rootFormTypeIdx != std::string::npos)
-					remove[rootFormTypeIdx] = true;
-				if (rootFlagsIdx != std::string::npos)
-					remove[rootFlagsIdx] = true;
-
-				// Remove duplicates (nested objects matching root)
+				bool seenFormType = false, seenFlags = false;
 				for (std::size_t i = 0; i < xInfo.size(); ++i) {
-					if (remove[i])
-						continue;
 					const auto& key = xInfo[i].first;
 					const auto& val = xInfo[i].second;
-
-					// Match any depth for duplicate removal (starts with tab or exact match)
-					if ((key == "File" || key.find("\tFile") == 0) && val == rootFile)
+					// Always strip root-level FormID and File (shown in header)
+					if (key == "FormID" || key == "File")
 						remove[i] = true;
+					// Deduplicate FormType and Flags — keep only the first occurrence
+					else if (key == "FormType") {
+						if (seenFormType)
+							remove[i] = true;
+						else
+							seenFormType = true;
+					} else if (key == "Flags") {
+						if (seenFlags)
+							remove[i] = true;
+						else
+							seenFlags = true;
+					}
+					// Remove Name/File duplicates at any nesting depth
 					if ((key == "Name" || key.find("\tName") == 0) && val == rootName)
+						remove[i] = true;
+					if ((key.find("\tFile") == 0) && val == rootFile)
 						remove[i] = true;
 				}
 
@@ -2493,6 +2738,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
+				std::make_pair(".?AVCombatNavmeshSearch@@"sv, SSE::CombatNavmeshSearch::filter),
 				std::make_pair(".?AVExtraLeveledItem@@"sv, SSE::ExtraLeveledItem::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkaAnimationBinding@@"sv, SSE::hkaAnimationBinding::filter),
@@ -2503,8 +2749,11 @@ namespace Crash::Introspection
 				std::make_pair(".?AVhkpWorldObject@@"sv, SSE::hkpWorldObject::filter),
 				std::make_pair(".?AVMain@@"sv, SSE::Main::filter),
 				std::make_pair(".?AVNativeFunctionBase@NF_util@BSScript@@"sv, SSE::BSScript::NF_util::NativeFunctionBase::filter),
+				std::make_pair(".?AVNavMesh@@"sv, SSE::NavMesh::filter),
 				std::make_pair(".?AVNiAVObject@@"sv, SSE::NiAVObject::filter),
 				std::make_pair(".?AVNiObjectNET@@"sv, SSE::NiObjectNET::filter),
+				std::make_pair(".?AVNiSkinInstance@@"sv, SSE::NiSkinInstance::filter),
+				std::make_pair(".?AVNiSkinPartition@@"sv, SSE::NiSkinPartition::filter),
 				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
 				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
 				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
