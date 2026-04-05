@@ -99,7 +99,7 @@ find_package(Boost
         MODULE
         REQUIRED
         COMPONENTS
-        stacktrace_windbg
+        stacktrace_basic
 )
 find_package(directxtk CONFIG REQUIRED)
 find_package(frozen REQUIRED CONFIG)
@@ -257,7 +257,7 @@ target_include_directories(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        Boost::stacktrace_windbg
+        Boost::stacktrace_basic
         Dbghelp.lib
         Winhttp.lib
         advapi32.lib
