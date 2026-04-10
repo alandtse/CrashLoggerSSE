@@ -16,11 +16,6 @@ namespace Crash
 	public:
 		Callstack(const ::_EXCEPTION_RECORD& a_except);
 
-		Callstack(boost::stacktrace::stacktrace a_stacktrace) :
-			_stacktrace{ std::move(a_stacktrace) },
-			_frames{ _stacktrace.begin(), _stacktrace.end() }
-		{}
-
 		void print(
 			spdlog::logger& a_log,
 			std::span<const std::unique_ptr<Modules::Module>> a_modules) const;
@@ -48,7 +43,7 @@ namespace Crash
 
 		void print_raw_callstack(spdlog::logger& a_log) const;
 
-		boost::stacktrace::stacktrace _stacktrace;
+		std::vector<boost::stacktrace::frame> _capturedFrames;
 		std::span<const boost::stacktrace::frame> _frames;
 	};
 

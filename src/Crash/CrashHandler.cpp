@@ -56,44 +56,72 @@ namespace Crash
 	}
 
 	// Safe wrapper to capture stack trace with exception protection
-	// Returns a pair: (stacktrace, success_flag)
-	std::pair<boost::stacktrace::stacktrace, bool> safe_capture_stacktrace() noexcept
+	// Returns a pair: (frames, success_flag)
+	bool safe_collect_native_frames(void** a_outFrames, std::uint16_t a_maxFrames, std::uint16_t a_skipFrames, std::uint16_t& a_captured) noexcept
+	{
+		a_captured = 0;
+
+		// Guard against faults while walking a corrupted stack.
+		__try {
+			a_captured = static_cast<std::uint16_t>(::RtlCaptureStackBackTrace(
+				a_skipFrames,
+				a_maxFrames,
+				a_outFrames,
+				nullptr));
+			return true;
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			return false;
+		}
+	}
+
+	std::pair<std::vector<boost::stacktrace::frame>, bool> safe_capture_stacktrace() noexcept
 	{
 		try {
-			// Capture with limited depth to avoid excessive memory usage
-			// If this crashes during stack unwinding, the catch will handle it
-			auto st = boost::stacktrace::stacktrace(0, 500);
-			return { std::move(st), true };
+			constexpr std::uint16_t MAX_DEPTH = 500;
+			void* nativeFrames[MAX_DEPTH]{};
+			std::uint16_t captured = 0;
+
+			if (!safe_collect_native_frames(nativeFrames, MAX_DEPTH, 1, captured)) {
+				return { {}, false };
+			}
+
+			std::vector<boost::stacktrace::frame> frames;
+			frames.reserve(captured);
+			for (std::uint16_t i = 0; i < captured; ++i) {
+				frames.emplace_back(nativeFrames[i]);
+			}
+
+			return { std::move(frames), true };
 		} catch (const std::bad_alloc&) {
 			// Out of memory during stack capture - stack may be corrupted
-			return { boost::stacktrace::stacktrace(0, 0), false };
+			return { {}, false };
 		} catch (...) {
 			// Exception during stacktrace capture - stack is likely corrupted
-			return { boost::stacktrace::stacktrace(0, 0), false };
+			return { {}, false };
 		}
 	}
 
 	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
 	{
-		auto [stacktrace, success] = safe_capture_stacktrace();
-		_stacktrace = std::move(stacktrace);
+		auto [capturedFrames, success] = safe_capture_stacktrace();
+		_capturedFrames = std::move(capturedFrames);
 
 		try {
 			// Handle empty stacktrace (indicates capture failure due to stack corruption)
-			if (_stacktrace.empty()) {
+			if (_capturedFrames.empty()) {
 				_frames = std::span<const boost::stacktrace::frame>();
 				return;
 			}
 
 			// Validate stacktrace has reasonable size to prevent memory issues
-			if (_stacktrace.size() > 10000) {
+			if (_capturedFrames.size() > 10000) {
 				// Truncate extremely large stack traces
-				_frames = std::span(_stacktrace.begin(), _stacktrace.begin() + 1000);
+				_frames = std::span(_capturedFrames.begin(), _capturedFrames.begin() + 1000);
 				return;
 			}
 
 			const auto exceptionAddress = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
-			auto it = std::find_if(_stacktrace.cbegin(), _stacktrace.cend(), [&](auto&& a_elem) noexcept {
+			auto it = std::find_if(_capturedFrames.cbegin(), _capturedFrames.cend(), [&](auto&& a_elem) noexcept {
 				try {
 					return reinterpret_cast<std::uintptr_t>(a_elem.address()) == exceptionAddress;
 				} catch (...) {
@@ -102,15 +130,15 @@ namespace Crash
 				}
 			});
 
-			if (it == _stacktrace.cend()) {
-				it = _stacktrace.cbegin();
+			if (it == _capturedFrames.cend()) {
+				it = _capturedFrames.cbegin();
 			}
 
-			_frames = std::span(it, _stacktrace.cend());
+			_frames = std::span(it, _capturedFrames.cend());
 		} catch (...) {
 			// Fallback: create minimal safe frame span
-			if (!_stacktrace.empty()) {
-				_frames = std::span(_stacktrace.begin(), _stacktrace.begin() + 1);
+			if (!_capturedFrames.empty()) {
+				_frames = std::span(_capturedFrames.begin(), _capturedFrames.begin() + 1);
 			} else {
 				_frames = std::span<const boost::stacktrace::frame>();
 			}
@@ -276,10 +304,10 @@ namespace Crash
 	{
 		a_log.critical("RAW CALL STACK:");
 
-		const auto format = "\t[{:>"s + get_size_string(_stacktrace.size()) + "}] 0x{:X}"s;
+		const auto format = "\t[{:>"s + get_size_string(_frames.size()) + "}] 0x{:X}"s;
 
-		for (std::size_t i = 0; i < _stacktrace.size(); ++i) {
-			a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(_stacktrace[i].address()));
+		for (std::size_t i = 0; i < _frames.size(); ++i) {
+			a_log.critical(fmt::runtime(format), i, reinterpret_cast<std::uintptr_t>(_frames[i].address()));
 		}
 	}
 
