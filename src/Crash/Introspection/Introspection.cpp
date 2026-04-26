@@ -2199,27 +2199,19 @@ namespace Crash::Introspection::SSE
 				return;
 
 			try {
+				const auto& rd = object->GetRuntimeData();
 				a_results.emplace_back(
 					fmt::format("{:\t>{}}Game Active"sv, "", tab_depth),
-					fmt::format("{}"sv, object->gameActive));
-			} catch (...) {}
-
-			try {
+					fmt::format("{}"sv, rd.gameActive));
 				a_results.emplace_back(
 					fmt::format("{:\t>{}}On Idle"sv, "", tab_depth),
-					fmt::format("{}"sv, object->onIdle));
-			} catch (...) {}
-
-			try {
+					fmt::format("{}"sv, rd.onIdle));
 				a_results.emplace_back(
 					fmt::format("{:\t>{}}Reload Content"sv, "", tab_depth),
-					fmt::format("{}"sv, object->reloadContent));
-			} catch (...) {}
-
-			try {
+					fmt::format("{}"sv, rd.reloadContent));
 				a_results.emplace_back(
 					fmt::format("{:\t>{}}Freeze Time"sv, "", tab_depth),
-					fmt::format("{}"sv, object->freezeTime));
+					fmt::format("{}"sv, rd.freezeTime));
 			} catch (...) {}
 		}
 	};
