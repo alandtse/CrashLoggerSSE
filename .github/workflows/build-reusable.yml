@@ -36,6 +36,9 @@ on:
       artifact-path:
         description: 'Path to the built artifact'
         value: ${{ jobs.build.outputs.artifact-path }}
+      normalized_version:
+        description: 'Normalized version string (v-prefix stripped)'
+        value: ${{ jobs.build.outputs.normalized_version }}
 
 jobs:
   build:
