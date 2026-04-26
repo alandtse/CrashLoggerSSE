@@ -558,6 +558,15 @@ namespace Crash::Introspection::SSE
 			try {
 				const auto objectRefr = RE::TESObjectREFR::FindReferenceFor3D((RE::NiAVObject*)a_ptr);
 				if (objectRefr) {
+					const auto objectref = objectRefr->GetObjectReference();
+					const auto filename = objectref && objectref->As<RE::TESModel>() ? objectref->As<RE::TESModel>()->GetModel() : ""sv;
+					if (!filename.empty())
+						a_results.emplace_back(
+							fmt::format(
+								"{:\t>{}}File"sv,
+								"",
+								tab_depth),
+							quoted(filename));
 					a_results.emplace_back(
 						fmt::format(
 							"{:\t>{}}Checking TESObjectREFR"sv,
