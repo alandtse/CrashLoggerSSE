@@ -69,6 +69,8 @@ jobs:
       always() &&
       needs.build.result == 'success' &&
       (needs.semantic-release.outputs.new_release_published == 'true' || github.event_name == 'workflow_dispatch')
+    outputs:
+      release_notes: ${{ steps.release_notes.outputs.body }}
 
     steps:
       - name: Download artifact
@@ -93,6 +95,17 @@ jobs:
           tag: ${{ needs.semantic-release.outputs.new_release_git_tag || steps.version.outputs.tag }}
           overwrite: true
 
+      - name: Fetch release notes
+        id: release_notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.semantic-release.outputs.new_release_git_tag || steps.version.outputs.tag }}"
+          BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
   upload-to-nexus:
     name: Upload to Nexus Mods
     needs: [semantic-release, build, upload-github-release]
@@ -110,7 +123,7 @@ jobs:
       tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && format('v{0}', inputs.version) || '' }}
       mod_version: ${{ needs.build.outputs.normalized_version || needs.semantic-release.outputs.new_release_version || '' }}
       mod_filename: CrashLogger
-      changelog: ${{ needs.semantic-release.outputs.new_release_notes }}
+      changelog: ${{ needs.semantic-release.outputs.new_release_notes || needs.upload-github-release.outputs.release_notes }}
       file_description: |
         See Description → Requirements for installation instructions.
         PDB is for crash debugging and can be removed.
