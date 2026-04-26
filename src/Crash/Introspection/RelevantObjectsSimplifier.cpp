@@ -125,6 +125,10 @@ namespace Crash::Introspection
 		std::string stack_trace = extract_field(full_analysis, "Stack Trace");
 		std::string active_quest = extract_field(full_analysis, "Active Quest");
 		std::string current_stage = extract_field(full_analysis, "Current Stage");
+		std::string archetype = extract_field(full_analysis, "Archetype");
+		std::string spell_type = extract_field(full_analysis, "SpellType");
+		std::string casting_type = extract_field(full_analysis, "CastingType");
+		std::string delivery = extract_field(full_analysis, "Delivery");
 
 		// Determine the best name to use
 		std::string best_name;
@@ -195,6 +199,54 @@ namespace Crash::Introspection
 				}
 				result += "}";
 			}
+			return result;
+		}
+
+		// Special case: SpellItem — show cast type and delivery alongside name
+		if (type_name.find("SpellItem") != std::string::npos) {
+			std::string result = type_name;
+			if (!best_name.empty())
+				result += " \"" + best_name + "\"";
+			if (!form_id.empty()) {
+				if (form_id.starts_with("0x") || form_id.starts_with("0X"))
+					form_id = form_id.substr(2);
+				result += " [0x" + form_id + "]";
+			}
+			if (!file.empty())
+				result += " (" + file + ")";
+			std::vector<std::string> spell_info;
+			if (!spell_type.empty())
+				spell_info.push_back(spell_type);
+			if (!casting_type.empty())
+				spell_info.push_back(casting_type);
+			if (!delivery.empty())
+				spell_info.push_back(delivery);
+			if (!spell_info.empty()) {
+				result += " {";
+				for (size_t i = 0; i < spell_info.size(); ++i) {
+					if (i > 0)
+						result += ", ";
+					result += spell_info[i];
+				}
+				result += "}";
+			}
+			return result;
+		}
+
+		// Special case: EffectSetting — show archetype alongside name
+		if (type_name.find("EffectSetting") != std::string::npos) {
+			std::string result = type_name;
+			if (!best_name.empty())
+				result += " \"" + best_name + "\"";
+			if (!form_id.empty()) {
+				if (form_id.starts_with("0x") || form_id.starts_with("0X"))
+					form_id = form_id.substr(2);
+				result += " [0x" + form_id + "]";
+			}
+			if (!file.empty())
+				result += " (" + file + ")";
+			if (!archetype.empty())
+				result += " {" + archetype + "}";
 			return result;
 		}
 

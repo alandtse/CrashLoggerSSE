@@ -14,8 +14,10 @@
 #include "RE/B/BSTMessageQueue.h"
 #include "RE/F/FunctionMessage.h"
 
+#include "RE/B/BGSLocation.h"
 #include "RE/B/BSFastNavmeshTriLocation.h"
 #include "RE/C/CombatNavmeshSearch.h"
+#include "RE/E/EffectSetting.h"
 #include "RE/M/Main.h"
 #include "RE/N/NavMesh.h"
 #include "RE/N/NiSkinInstance.h"
@@ -23,6 +25,7 @@
 #include "RE/P/PathingCell.h"
 #include "RE/P/ProcessLists.h"
 #include "RE/S/ShadowSceneNode.h"
+#include "RE/S/SpellItem.h"
 #include "RE/T/TESDataHandler.h"
 #include "RE/T/TESObjectCELL.h"
 #include "RE/T/TESWorldSpace.h"
@@ -1808,6 +1811,99 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class BGSLocation
+	{
+	public:
+		using value_type = RE::BGSLocation;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto parent = object->parentLoc;
+				if (parent) {
+					const auto parentName = parent->GetFullName();
+					const auto parentFile = parent->GetDescriptionOwnerFile();
+					const auto parentFilename = parentFile ? parentFile->GetFilename() : ""sv;
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Parent Location"sv, "", tab_depth),
+						fmt::format("\"{}\" [0x{:08X}]{}",
+							parentName ? parentName : "",
+							parent->GetFormID(),
+							parentFilename.empty() ? "" : fmt::format(" ({})", parentFilename)));
+				}
+			} catch (...) {}
+		}
+	};
+
+	class EffectSetting
+	{
+	public:
+		using value_type = RE::EffectSetting;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto archetype = object->GetArchetype();
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Archetype"sv, "", tab_depth),
+					std::string(magic_enum::enum_name(archetype)));
+			} catch (...) {}
+			try {
+				const auto skill = object->GetMagickSkill();
+				if (skill != RE::ActorValue::kNone)
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Skill"sv, "", tab_depth),
+						std::string(magic_enum::enum_name(skill)));
+			} catch (...) {}
+			try {
+				if (object->IsHostile())
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}Hostile"sv, "", tab_depth),
+						"true");
+			} catch (...) {}
+		}
+	};
+
+	class SpellItem
+	{
+	public:
+		using value_type = RE::SpellItem;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}SpellType"sv, "", tab_depth),
+					std::string(magic_enum::enum_name(object->GetSpellType())));
+			} catch (...) {}
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}CastingType"sv, "", tab_depth),
+					std::string(magic_enum::enum_name(object->GetCastingType())));
+			} catch (...) {}
+			try {
+				a_results.emplace_back(
+					fmt::format("{:\t>{}}Delivery"sv, "", tab_depth),
+					std::string(magic_enum::enum_name(object->GetDelivery())));
+			} catch (...) {}
+		}
+	};
+
 	class TESQuest
 	{
 	public:
@@ -2732,6 +2828,7 @@ namespace Crash::Introspection
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
+				std::make_pair(".?AVBGSLocation@@"sv, SSE::BGSLocation::filter),
 				std::make_pair(".?AVBSCullingProcess@@"sv, SSE::BSCullingProcess::filter),
 				std::make_pair(".?AVBShkbAnimationGraph@@"sv, SSE::BShkbAnimationGraph::filter),
 				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
@@ -2741,6 +2838,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCombatNavmeshSearch@@"sv, SSE::CombatNavmeshSearch::filter),
 				std::make_pair(".?AVExtraLeveledItem@@"sv, SSE::ExtraLeveledItem::filter),
+				std::make_pair(".?AVEffectSetting@@"sv, SSE::EffectSetting::filter),
 				std::make_pair(".?AVExtraTextDisplayData@@"sv, SSE::ExtraTextDisplayData::filter),
 				std::make_pair(".?AVhkaAnimationBinding@@"sv, SSE::hkaAnimationBinding::filter),
 				std::make_pair(".?AVhkbCharacter@@"sv, SSE::hkbCharacter::filter),
@@ -2762,6 +2860,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVPlayerCharacter@@"sv, SSE::TESForm<RE::PlayerCharacter>::filter),
 				std::make_pair(".?AVScriptEffect@@"sv, SSE::ScriptEffect::filter),
 				std::make_pair(".?AVServingThread@JobListManager@@"sv, SSE::ServingThread::filter),
+				std::make_pair(".?AVSpellItem@@"sv, SSE::SpellItem::filter),
 				std::make_pair(".?AVShadowSceneNode@@"sv, SSE::ShadowSceneNode::filter),
 				std::make_pair(".?AVSimpleAllocMemoryPagePolicy@BSScript@@"sv, SSE::BSScript::SimpleAllocMemoryPagePolicy::filter),
 				std::make_pair(".?AVVirtualMachine@Internal@BSScript@@"sv, SSE::BSScript::Internal::VirtualMachine::filter),
