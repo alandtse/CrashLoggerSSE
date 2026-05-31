@@ -58,7 +58,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks. Default: true\n;When enabled, press Ctrl+Shift+F12 while game is frozen to generate dump.\n;Set to 0 to disable (no monitoring thread will be created).");
 
 	// Parse hotkey combination (comma-separated list of VK codes)
-	std::string hotkeyStr;
+	std::string hotkeyStr = "17, 16, 123";  // Default: Ctrl+Shift+F12
 	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Default: 17, 16, 123\n;VK code reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes");
 
 	// Heap analysis section header
@@ -128,6 +128,25 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 		}
 	}
 
+	// Developer crash testing section header
+	a_ini.SetValue(section, nullptr, nullptr,
+		"\n; ============================================================================\n"
+		"; Developer Crash Testing (FOR TESTING ONLY - KEEP DISABLED!)\n"
+		"; ============================================================================\n"
+		"; WARNING: These features intentionally CRASH the game for testing!\n"
+		"; Only enable these if you're testing CrashLogger functionality.\n"
+		"; DO NOT enable these during normal gameplay!\n"
+		"; ============================================================================",
+		false);
+
+	get_value(a_ini, enableCrashTestHotkey, section, "Enable Crash Test Hotkey", ";Enable developer crash testing hotkey. Default: false\n;WARNING: This will display a prominent warning on screen and intentionally crash when pressed!\n;Only enable for testing CrashLogger. DO NOT enable during normal gameplay!\n;Set to false or 0 to disable completely.");
+
+	// Parse crash test hotkey combination
+	std::string crashTestHotkeyStr = "17, 16, 122";  // Default: Ctrl+Shift+F11
+	get_value(a_ini, crashTestHotkeyStr, section, "Crash Test Hotkey", ";Crash test hotkey combination (VK codes): Ctrl=17, Shift=16, F11=122. Default: 17, 16, 122\n;Press this combination to trigger a test crash (only if enabled above).\n;Use Ctrl+Shift+PgUp/PgDn to cycle between crash types in-game!");
+
+	get_value(a_ini, crashTestType, section, "Crash Test Type", ";Initial crash type on game start (0-9). Can be changed in-game with Ctrl+Shift+PgUp/PgDn. Default: 0\n;General C++ Crashes:\n;  0 = Access Violation (invalid memory write)\n;  1 = Null Pointer Dereference (read from address 0)\n;  2 = C++ Exception (std::runtime_error with message)\n;  3 = Divide by Zero (integer division)\n;  4 = Invalid Virtual Call (corrupted object vtable)\n;Skyrim-Specific Crashes:\n;  5 = Invalid Form Access (NULL TESForm pointer)\n;  6 = Invalid 3D Access (NULL NiAVObject pointer)\n;  7 = Invalid ExtraData (NULL ExtraDataList pointer)\n;  8 = Corrupted Player Singleton (vtable corruption)\n;  9 = Wrong Offset Access (simulates version mismatch)\n;TIP: Don't edit this while testing - use PgUp/PgDn hotkeys instead!");
+
 	// Advanced section header
 	a_ini.SetValue(section, nullptr, nullptr,
 		"\n; ============================================================================\n"
@@ -152,6 +171,24 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 			if (!token.empty()) {
 				try {
 					threadDumpHotkey.push_back(std::stoi(token));
+				} catch (...) {
+					// Skip invalid values
+				}
+			}
+		}
+	}
+
+	crashTestHotkey.clear();
+	if (!crashTestHotkeyStr.empty()) {
+		std::istringstream iss(crashTestHotkeyStr);
+		std::string token;
+		while (std::getline(iss, token, ',')) {
+			// Trim whitespace
+			token.erase(0, token.find_first_not_of(" \t"));
+			token.erase(token.find_last_not_of(" \t") + 1);
+			if (!token.empty()) {
+				try {
+					crashTestHotkey.push_back(std::stoi(token));
 				} catch (...) {
 					// Skip invalid values
 				}

@@ -48,4 +48,7 @@ namespace Crash
 	};
 
 	void Install(std::string a_crashPath);
+
+	// Developer crash testing functions
+	void TriggerTestCrash(int crashType);
 }
