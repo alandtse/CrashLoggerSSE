@@ -21,10 +21,24 @@ on:
       - '.github/workflows/build-reusable.yml'
       - '.github/workflows/pr-test.yml'
 
+# Least-privilege default token; passed through to the reusable build, which only
+# checks out and compiles and needs no write scopes.
+permissions:
+  contents: read
+
+# Cancel a superseded run when the PR is force-pushed (keyed on PR number).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   test-build:
     name: Test Build
     uses: ./.github/workflows/build-reusable.yml
+    # Explicit least-privilege at the call site (pass-through to the reusable).
+    permissions:
+      contents: read
     with:
       preset: Release-MSVC
       upload-artifact: false
+    # No `secrets:` block — intentional: keeps fork PRs in a zero-secret context.
