@@ -539,3 +539,6 @@ contrib/Distribution/**/*.pex
 contrib/Distribution/*
 !contrib/Distribution/Config
 _codeql_detected_source_root
+
+# Skyrim runtime PDB packaging output (scripts/package_skyrim_pdbs.py)
+pdb_artifacts/
