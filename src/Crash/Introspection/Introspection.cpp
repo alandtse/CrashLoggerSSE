@@ -783,6 +783,66 @@ namespace Crash::Introspection::SSE
 							tab_depth),
 						quoted(filePath));
 			} catch (...) {}
+
+			// If filePath/inputFilePath are empty (e.g. NIF loaded from a BSA into a memory
+			// buffer), the underlying input stream still knows its resource name. Only walk it
+			// if iStr's vtable matches BSResourceNiBinaryStream — calling DoGetName on the wrong
+			// subclass from a crash handler would re-crash us.
+			try {
+				const auto iStr = object->iStr;
+				if (iStr) {
+					const auto vt = *reinterpret_cast<const std::uintptr_t*>(iStr);
+					if (vt == RE::VTABLE_BSResourceNiBinaryStream[0].address()) {
+						const auto brnbs = static_cast<const RE::BSResourceNiBinaryStream*>(iStr);
+						const auto stream = brnbs->stream.get();
+						if (stream) {
+							RE::BSFixedString resName;
+							stream->DoGetName(resName);
+							if (!resName.empty()) {
+								a_results.emplace_back(
+									fmt::format("{:\t>{}}streamName"sv, "", tab_depth),
+									quoted(resName.c_str()));
+							}
+						}
+					}
+				}
+			} catch (...) {}
+		}
+	};
+
+	class BSResourceNiBinaryStream
+	{
+	public:
+		using value_type = RE::BSResourceNiBinaryStream;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto stream = object->stream.get();
+				if (stream) {
+					RE::BSFixedString resName;
+					stream->DoGetName(resName);
+					if (!resName.empty()) {
+						a_results.emplace_back(
+							fmt::format("{:\t>{}}streamName"sv, "", tab_depth),
+							quoted(resName.c_str()));
+					}
+				}
+			} catch (...) {}
+
+			try {
+				const auto err = static_cast<std::uint32_t>(object->lastError);
+				if (err != 0) {
+					a_results.emplace_back(
+						fmt::format("{:\t>{}}lastError"sv, "", tab_depth),
+						fmt::format("{:#x}"sv, err));
+				}
+			} catch (...) {}
 		}
 	};
 
@@ -2854,6 +2914,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVNiSkinInstance@@"sv, SSE::NiSkinInstance::filter),
 				std::make_pair(".?AVNiSkinPartition@@"sv, SSE::NiSkinPartition::filter),
 				std::make_pair(".?AVNiStream@@"sv, SSE::NiStream::filter),
+				std::make_pair(".?AVBSResourceNiBinaryStream@@"sv, SSE::BSResourceNiBinaryStream::filter),
 				std::make_pair(".?AVNiTexture@@"sv, SSE::NiTexture::filter),
 				std::make_pair(".?AVObjectTypeInfo@BSScript@@"sv, SSE::BSScript::ObjectTypeInfo::filter),
 				std::make_pair(".?AV?$BSTCommonLLMessageQueue@UFunctionMessage@Internal@BSScript@@@@"sv, SSE::BSScript::Internal::FunctionMessageQueue::filter),
