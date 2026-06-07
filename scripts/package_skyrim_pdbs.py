@@ -134,6 +134,9 @@ def parse_args():
 def main():
     args = parse_args()
     sevenzip = find_7z(args.sevenzip)
+    # Absolute-ize: package_runtime runs 7z with cwd=<stage>, so a relative archive path would be
+    # resolved against the stage dir (nested) and the later getsize would miss it.
+    args.out = os.path.abspath(args.out)
     os.makedirs(args.out, exist_ok=True)
 
     print(f"Packaging Skyrim PDBs -> {args.out}")
