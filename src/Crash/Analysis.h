@@ -108,6 +108,14 @@ namespace Crash
 		std::span<const void* const> a_frames,
 		std::span<const module_pointer> a_modules);
 
+	// Recover the real caller chain of a null/near-null indirect call (execute access violation at
+	// RIP≈0). The faulting CALL pushed its return address at [RSP], which has valid unwind metadata,
+	// so a reliable virtual unwind can be reseeded from it. Returns frames starting at the caller of
+	// the faulting CALL; empty if RSP is invalid or no caller could be recovered.
+	[[nodiscard]] std::vector<const void*> recover_null_call_stack(
+		const ::CONTEXT& a_context,
+		std::size_t a_max_frames = 128);
+
 	// Scan raw stack data for plausible return addresses and build a reconstructed callstack
 	[[nodiscard]] std::vector<const void*> scan_stack_for_frames(
 		std::span<const std::size_t> a_stack,

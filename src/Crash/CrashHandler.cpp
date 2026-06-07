@@ -101,8 +101,36 @@ namespace Crash
 		}
 	}
 
-	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except)
+	Callstack::Callstack(const ::EXCEPTION_RECORD& a_except, const ::CONTEXT* a_context)
 	{
+		// Self-heal for a null / near-null EXECUTE access violation (a call through a null or
+		// garbage function pointer). RtlCaptureStackBackTrace, called from inside this handler,
+		// would return only the handler + OS exception-dispatch frames, because the faulting
+		// frame's RIP (=0) has no unwind metadata for the walk to cross. The faulting CALL did
+		// push its return address at [RSP], whose code has valid unwind data, so reseed a reliable
+		// unwind from there: the resulting frames ARE the real culprit chain. We replace the
+		// captured frames entirely so every consumer (hybrid stack, throw location, thread role)
+		// sees the corrected stack instead of the handler.
+		const auto exceptionIp = reinterpret_cast<std::uintptr_t>(a_except.ExceptionAddress);
+		const bool isNullCall =
+			a_except.ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+			a_except.NumberParameters >= 1 &&
+			a_except.ExceptionInformation[0] == 8 &&  // execute
+			exceptionIp < 0x10000;
+
+		if (isNullCall && a_context) {
+			const auto recovered = recover_null_call_stack(*a_context);
+			if (!recovered.empty()) {
+				_capturedFrames.clear();
+				_capturedFrames.reserve(recovered.size());
+				for (const auto addr : recovered) {
+					_capturedFrames.emplace_back(addr);
+				}
+				_frames = std::span(_capturedFrames);
+				return;
+			}
+		}
+
 		auto [capturedFrames, success] = safe_capture_stacktrace();
 		_capturedFrames = std::move(capturedFrames);
 
@@ -508,12 +536,48 @@ namespace Crash
 			}
 		}
 
+		// Handle a null / near-null EXECUTE access violation: a call/jmp through a null (or garbage)
+		// function pointer. There is nothing to disassemble at the fault IP, and the reliable stack
+		// unwinder cannot cross a frame whose RIP has no unwind metadata, so the probable callstack
+		// dead-ends in the OS exception dispatcher and the CrashLogger/ntdll frames at the top are the
+		// handler, not the cause. The faulting CALL did push its return address at [RSP], though, so
+		// we reseed a reliable unwind from there to name the true caller chain.
+		//
+		// Returns true if the violation was a null call. The corrected call stack itself is produced
+		// by Callstack (reseeded from [RSP]); here we only annotate WHY the stack was healed, so the
+		// reader knows the OS-dispatch / CrashLogger handler frames were deliberately omitted.
+		bool print_null_call_analysis(
+			spdlog::logger& a_log,
+			const ::EXCEPTION_RECORD& a_exception)
+		{
+			const auto ipValue = reinterpret_cast<std::uintptr_t>(a_exception.ExceptionAddress);
+			const bool isExecute = a_exception.ExceptionInformation[0] == 8;
+			if (!isExecute || ipValue >= 0x10000) {
+				return false;
+			}
+
+			a_log.critical("ACCESS VIOLATION ANALYSIS:"sv);
+			a_log.critical("\tRIP = 0x{:X} -- null function-pointer call (executed an unmapped address)."sv, ipValue);
+			a_log.critical("\tThe faulting frame has no unwind data, so the primary call stack below has"sv);
+			a_log.critical("\tbeen reseeded from the return address at [RSP]; the OS exception-dispatch"sv);
+			a_log.critical("\tand CrashLogger handler frames are omitted as they are not the cause."sv);
+			return true;
+		}
+
 		void print_access_violation_analysis(
 			spdlog::logger& a_log,
 			const ::EXCEPTION_RECORD& a_exception,
 			const ::CONTEXT& a_context)
 		{
 			const auto ip = a_exception.ExceptionAddress;
+
+			// Null / near-null EXECUTE access violations (a call/jmp through a null function pointer)
+			// have nothing to disassemble at the fault IP, so they are annotated separately (the
+			// corrected call stack itself is reseeded inside Callstack).
+			if (print_null_call_analysis(a_log, a_exception)) {
+				return;
+			}
+
 			ZydisDisassembledInstruction instruction{};
 
 			// Guard against reading invalid memory at ExceptionAddress
@@ -1477,7 +1541,7 @@ next_label:;
 				std::optional<Callstack> callstack;
 				std::string throwLocation;
 				try {
-					callstack.emplace(*a_exception->ExceptionRecord);
+					callstack.emplace(*a_exception->ExceptionRecord, a_exception->ContextRecord);
 					if (IsCppException(*a_exception->ExceptionRecord)) {
 						throwLocation = callstack->get_throw_location(cmodules);
 					}
@@ -1533,7 +1597,7 @@ next_label:;
 				print([&]() {
 					try {
 						const Callstack* callstack_ptr = callstack ? &(*callstack) : nullptr;
-						Callstack fallback{ *a_exception->ExceptionRecord };
+						Callstack fallback{ *a_exception->ExceptionRecord, a_exception->ContextRecord };
 						if (!callstack_ptr) {
 							callstack_ptr = &fallback;
 						}

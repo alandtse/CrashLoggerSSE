@@ -3,6 +3,7 @@
 #include <vector>
 
 struct _EXCEPTION_RECORD;
+struct _CONTEXT;
 
 namespace Crash
 {
@@ -14,7 +15,9 @@ namespace Crash
 	class Callstack
 	{
 	public:
-		Callstack(const ::_EXCEPTION_RECORD& a_except);
+		// a_context (the faulting CONTEXT) enables self-healing the call stack for null
+		// function-pointer calls by reseeding the unwind from [RSP]; pass it when available.
+		Callstack(const ::_EXCEPTION_RECORD& a_except, const ::_CONTEXT* a_context = nullptr);
 
 		void print(
 			spdlog::logger& a_log,

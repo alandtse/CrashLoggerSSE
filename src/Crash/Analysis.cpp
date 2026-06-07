@@ -316,6 +316,72 @@ namespace Crash
 		print_callstack_impl(a_log, frame_data, "\t"sv);
 	}
 
+	namespace
+	{
+		// Reseed a reliable virtual unwind from the return address a faulting CALL pushed at [RSP].
+		// Used to recover the true caller chain of a null/near-null indirect call, where the normal
+		// unwinder dead-ends because the fault frame's RIP (=0) has no unwind metadata.
+		//
+		// Kept free of any object that requires unwinding (no std:: containers, no destructors) so
+		// the function is legal to wrap in __try/__except (MSVC C2712). Results are written into the
+		// caller-provided buffer, mirroring safe_collect_native_frames().
+		bool safe_reseed_unwind_from_rsp(const ::CONTEXT& a_context, void** a_out, std::size_t a_max, std::size_t& a_count) noexcept
+		{
+			a_count = 0;
+			__try {
+				// The faulting CALL pushed its return address at [RSP]; that is the real caller.
+				const auto retSlot = reinterpret_cast<void* const*>(a_context.Rsp);
+				void* const caller = *retSlot;  // may fault if RSP is invalid -> caught below
+				if (caller == nullptr || a_max == 0) {
+					return true;
+				}
+
+				// Synthesize a context positioned just past the faulting CALL and unwind from there.
+				::CONTEXT ctx = a_context;
+				ctx.Rip = reinterpret_cast<DWORD64>(caller);
+				ctx.Rsp = a_context.Rsp + sizeof(void*);
+
+				a_out[a_count++] = caller;
+
+				while (a_count < a_max && ctx.Rip != 0) {
+					DWORD64 imageBase = 0;
+					auto* const fn = ::RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr);
+					if (fn == nullptr) {
+						break;  // leaf function / no unwind data -> stop the reliable walk
+					}
+
+					PVOID handlerData = nullptr;
+					DWORD64 establisherFrame = 0;
+					::RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fn, &ctx,
+						&handlerData, &establisherFrame, nullptr);
+
+					if (ctx.Rip == 0) {
+						break;
+					}
+					a_out[a_count++] = reinterpret_cast<void*>(ctx.Rip);
+				}
+				return true;
+			} __except (EXCEPTION_EXECUTE_HANDLER) {
+				return false;  // stack walk faulted; caller keeps whatever was collected
+			}
+		}
+	}
+
+	std::vector<const void*> recover_null_call_stack(const ::CONTEXT& a_context, std::size_t a_max_frames)
+	{
+		std::vector<const void*> result;
+		if (a_max_frames == 0) {
+			return result;
+		}
+
+		std::vector<void*> buffer(a_max_frames, nullptr);
+		std::size_t count = 0;
+		if (safe_reseed_unwind_from_rsp(a_context, buffer.data(), a_max_frames, count)) {
+			result.assign(buffer.begin(), buffer.begin() + count);
+		}
+		return result;
+	}
+
 	std::vector<const void*> scan_stack_for_frames(
 		std::span<const std::size_t> a_stack,
 		std::span<const module_pointer> a_modules,
