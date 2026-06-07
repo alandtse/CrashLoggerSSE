@@ -1,0 +1,5 @@
+probe.exe
+*.exe
+*.obj
+*.ilk
+*.pdb
