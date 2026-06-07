@@ -1459,6 +1459,17 @@ next_label:;
 
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
+			// Stack overflow path: when the original crash is a stack overflow, the
+			// thread has run past its guard page, so any subsequent code that pushes
+			// non-trivial stack frames (notably safe_capture_stacktrace's 4 KB local
+			// buffer + boost::stacktrace symbol resolution) faults again and we lose
+			// the report. _resetstkoflw() commits a fresh guard page so the rest of
+			// the handler has stack to run on. Must be called as early as possible.
+			if (a_exception && a_exception->ExceptionRecord &&
+				a_exception->ExceptionRecord->ExceptionCode == static_cast<DWORD>(EXCEPTION_STACK_OVERFLOW)) {
+				::_resetstkoflw();
+			}
+
 			// Install the SEH-to-C++ exception translator
 			_set_se_translator(seh_translator);
 
@@ -1781,6 +1792,16 @@ next_label:;
 		if (!a_crashPath.empty()) {
 			crashPath = std::filesystem::path(a_crashPath);
 			logger::info("Crash Logs will be written to {}", crashPath.string());
+		}
+
+		// Reserve a slice of stack guaranteed to be available when an exception
+		// handler runs. Without this, a stack-overflow crash leaves the handler
+		// with too little stack to capture the stacktrace and we observe
+		// recursive crashes inside CrashLogger itself. 64 KB is enough for the
+		// safe_capture_stacktrace + boost::stacktrace + spdlog write path.
+		{
+			ULONG stackGuarantee = 64 * 1024;
+			::SetThreadStackGuarantee(&stackGuarantee);
 		}
 
 		// Install crash handlers
