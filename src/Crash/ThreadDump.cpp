@@ -2,6 +2,8 @@
 #include "Crash/CommonHeader.h"
 
 #include "Crash/Analysis.h"
+#include "Crash/CrashHandler.h"
+#include "Crash/CrashTests.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
@@ -24,6 +26,8 @@ namespace Crash
 	// Static variables for hotkey monitoring
 	static std::atomic<bool> g_stopHotkeyThread{ false };
 	static std::jthread g_hotkeyThread;
+	// Runtime crash test type (can be changed via hotkeys)
+	static std::atomic<int> g_currentCrashTestType{ 0 };
 
 	std::optional<ThreadData> CollectThreadData(DWORD threadId, size_t index,
 		std::span<const module_pointer> a_modules, const std::string& processName, const std::filesystem::path& pluginDir)
@@ -312,29 +316,131 @@ namespace Crash
 	{
 		const auto& config = Settings::GetSingleton()->GetDebug();
 
-		bool wasPressed = false;
+		bool wasThreadDumpPressed = false;
+		bool wasCrashTestPressed = false;
+		bool wasCrashTypePrevPressed = false;
+		bool wasCrashTypeNextPressed = false;
+		bool warningShown = false;
+
+		// Initialize runtime crash type from config
+		g_currentCrashTestType = config.crashTestType;
+
+		constexpr int numCrashTypes = CrashTests::GetCrashTestCount();
 
 		while (!g_stopHotkeyThread) {
-			// Check if all keys are pressed
-			bool allPressed = true;
-			for (int vk : config.threadDumpHotkey) {
-				if (!(GetAsyncKeyState(vk) & 0x8000)) {
-					allPressed = false;
-					break;
+			// Check thread dump hotkey
+			if (!config.threadDumpHotkey.empty()) {
+				bool allPressed = true;
+				for (int vk : config.threadDumpHotkey) {
+					if (!(GetAsyncKeyState(vk) & 0x8000)) {
+						allPressed = false;
+						break;
+					}
+				}
+
+				if (allPressed && !wasThreadDumpPressed) {
+					// Rising edge - keys just pressed
+					wasThreadDumpPressed = true;
+
+					try {
+						WriteAllThreadsDump();
+					} catch (...) {
+						logger::error("Failed to write thread dump"sv);
+					}
+				} else if (!allPressed) {
+					wasThreadDumpPressed = false;
 				}
 			}
 
-			if (allPressed && !wasPressed) {
-				// Rising edge - keys just pressed
-				wasPressed = true;
+			// Check crash test type cycling hotkeys (if crash test enabled)
+			if (config.enableCrashTestHotkey) {
+				// Ctrl+Shift+PgUp = previous crash type
+				const bool ctrlShiftPgUp =
+					(GetAsyncKeyState(VK_CONTROL) & 0x8000) &&
+					(GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+					(GetAsyncKeyState(VK_PRIOR) & 0x8000);  // VK_PRIOR = Page Up
 
-				try {
-					WriteAllThreadsDump();
-				} catch (...) {
-					logger::error("Failed to write thread dump"sv);
+				if (ctrlShiftPgUp && !wasCrashTypePrevPressed) {
+					wasCrashTypePrevPressed = true;
+					int newType = (g_currentCrashTestType - 1 + numCrashTypes) % numCrashTypes;
+					g_currentCrashTestType = newType;
+
+					const auto message = fmt::format(
+						"<< Crash Test Type: {}",
+						CrashTests::GetCrashTypeName(newType));
+
+					RE::SendHUDMessage::ShowHUDMessage(message.c_str(), nullptr, false);
+					if (auto console = RE::ConsoleLog::GetSingleton()) {
+						console->Print(message.c_str());
+					}
+					logger::info("Crash test type changed to: {}", CrashTests::GetCrashTypeName(newType));
+				} else if (!ctrlShiftPgUp) {
+					wasCrashTypePrevPressed = false;
 				}
-			} else if (!allPressed) {
-				wasPressed = false;
+
+				// Ctrl+Shift+PgDn = next crash type
+				const bool ctrlShiftPgDn =
+					(GetAsyncKeyState(VK_CONTROL) & 0x8000) &&
+					(GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+					(GetAsyncKeyState(VK_NEXT) & 0x8000);  // VK_NEXT = Page Down
+
+				if (ctrlShiftPgDn && !wasCrashTypeNextPressed) {
+					wasCrashTypeNextPressed = true;
+					int newType = (g_currentCrashTestType + 1) % numCrashTypes;
+					g_currentCrashTestType = newType;
+
+					const auto message = fmt::format(
+						">> Crash Test Type: {}",
+						CrashTests::GetCrashTypeName(newType));
+
+					RE::SendHUDMessage::ShowHUDMessage(message.c_str(), nullptr, false);
+					if (auto console = RE::ConsoleLog::GetSingleton()) {
+						console->Print(message.c_str());
+					}
+					logger::info("Crash test type changed to: {}", CrashTests::GetCrashTypeName(newType));
+				} else if (!ctrlShiftPgDn) {
+					wasCrashTypeNextPressed = false;
+				}
+			}
+
+			// Check crash test hotkey (if enabled)
+			if (config.enableCrashTestHotkey && !config.crashTestHotkey.empty()) {
+				bool allPressed = true;
+				for (int vk : config.crashTestHotkey) {
+					if (!(GetAsyncKeyState(vk) & 0x8000)) {
+						allPressed = false;
+						break;
+					}
+				}
+
+				if (allPressed && !wasCrashTestPressed) {
+					// Rising edge - keys just pressed
+					wasCrashTestPressed = true;
+
+					// Show prominent warning ONCE per game session
+					if (!warningShown) {
+						const int currentType = g_currentCrashTestType.load();
+						const auto message = fmt::format(
+							"WARNING: CRASH TEST HOTKEY PRESSED!\n\n"
+							"This will intentionally CRASH the game for testing.\n"
+							"Current Type: {}\n\n"
+							"Press the hotkey AGAIN to trigger the crash.\n"
+							"Use Ctrl+Shift+PgUp/PgDn to change crash type.\n"
+							"(This warning will only show once)",
+							CrashTests::GetCrashTypeName(currentType));
+
+						RE::DebugMessageBox(message.c_str());
+						warningShown = true;
+					} else {
+						// Second press - actually trigger the crash
+						const int currentType = g_currentCrashTestType.load();
+						logger::warn("Crash test hotkey pressed - triggering test crash type: {}",
+							CrashTests::GetCrashTypeName(currentType));
+						CrashTests::TriggerTestCrash(currentType);
+					}
+				} else if (!allPressed) {
+					wasCrashTestPressed = false;
+				}
 			}
 
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -345,20 +451,26 @@ namespace Crash
 	{
 		const auto& config = Settings::GetSingleton()->GetDebug();
 
-		// Only create thread if feature is enabled AND hotkey is configured
-		if (!config.enableThreadDumpHotkey) {
-			logger::info("Thread dump hotkey disabled"sv);
-			return;
-		}
+		// Check if either feature is enabled
+		const bool threadDumpEnabled = config.enableThreadDumpHotkey && !config.threadDumpHotkey.empty();
+		const bool crashTestEnabled = config.enableCrashTestHotkey && !config.crashTestHotkey.empty();
 
-		if (config.threadDumpHotkey.empty()) {
-			logger::info("Thread dump hotkey not configured, monitoring thread not created"sv);
+		if (!threadDumpEnabled && !crashTestEnabled) {
+			logger::info("Hotkey monitoring disabled (no features enabled)"sv);
 			return;
 		}
 
 		g_stopHotkeyThread = false;
 		g_hotkeyThread = std::jthread(HotkeyMonitorThreadFunction);
-		logger::info("Thread dump hotkey monitoring started (Ctrl+Shift+F12)"sv);
+
+		// Log which features are enabled
+		if (threadDumpEnabled && crashTestEnabled) {
+			logger::info("Hotkey monitoring started: Thread Dump (Ctrl+Shift+F12), Crash Test (Ctrl+Shift+F11), Cycle Type (Ctrl+Shift+PgUp/PgDn)"sv);
+		} else if (threadDumpEnabled) {
+			logger::info("Thread dump hotkey monitoring started (Ctrl+Shift+F12)"sv);
+		} else if (crashTestEnabled) {
+			logger::info("Crash test hotkey monitoring started (Ctrl+Shift+F11, Ctrl+Shift+PgUp/PgDn to cycle)"sv);
+		}
 	}
 
 	void StopHotkeyMonitoring()

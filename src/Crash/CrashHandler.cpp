@@ -1815,6 +1815,16 @@ next_label:;
 		// Start hotkey monitoring thread
 		StartHotkeyMonitoring();
 
+		// Display warning if crash test hotkey is enabled
+		if (Settings::GetSingleton()->GetDebug().enableCrashTestHotkey) {
+			logger::warn("========================================");
+			logger::warn("WARNING: CRASH TEST HOTKEY ENABLED!");
+			logger::warn("Developer crash testing is active.");
+			logger::warn("The game will display a warning and can be crashed on demand.");
+			logger::warn("Disable 'Enable Crash Test Hotkey' in CrashLogger.ini for normal gameplay!");
+			logger::warn("========================================");
+		}
+
 // Verify handlers are working by testing (in debug builds only)
 #ifdef _DEBUG
 		if (const auto& debugConfig = Settings::GetSingleton()->GetDebug();
@@ -1823,4 +1833,5 @@ next_label:;
 		}
 #endif
 	}
+
 }  // namespace Crash
