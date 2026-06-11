@@ -46,8 +46,10 @@ private:
 	{
 		try {
 			ini::get_value(a_ini, a_value, a_section, a_key, a_comment);
+		} catch (const std::exception& e) {
+			logger::warn("Failed to parse setting [{}] {} (Error: {})", a_section, a_key, e.what());
 		} catch (...) {
-			// Keep the default/existing value on parsing failure
+			logger::warn("Failed to parse setting [{}] {} (Unknown error)", a_section, a_key);
 		}
 	}
 	Debug debug{};

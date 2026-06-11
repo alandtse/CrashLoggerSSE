@@ -141,7 +141,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, flushLevel, section, "Flush Level", ";Log level to force messages to print from buffer. Default: 0");
 	get_value(a_ini, waitForDebugger, section, "Wait for Debugger for Crash", ";Enable if using VisualStudio to debug CrashLogger itself. Default: false\n;Set false otherwise because Crashlogger will not produce a crash until the debugger is detected.");
 
-	threadDumpHotkey.clear();
+	std::vector<int> parsedHotkey;
 	if (!hotkeyStr.empty()) {
 		std::istringstream iss(hotkeyStr);
 		std::string token;
@@ -151,12 +151,15 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 			token.erase(token.find_last_not_of(" \t") + 1);
 			if (!token.empty()) {
 				try {
-					threadDumpHotkey.push_back(std::stoi(token));
+					parsedHotkey.push_back(std::stoi(token));
 				} catch (...) {
 					// Skip invalid values
 				}
 			}
 		}
+	}
+	if (!parsedHotkey.empty()) {
+		threadDumpHotkey = std::move(parsedHotkey);
 	}
 }
 
