@@ -44,7 +44,11 @@ private:
 	template <class T>
 	static void get_value(CSimpleIniA& a_ini, T& a_value, const char* a_section, const char* a_key, const char* a_comment)
 	{
-		ini::get_value(a_ini, a_value, a_section, a_key, a_comment);
+		try {
+			ini::get_value(a_ini, a_value, a_section, a_key, a_comment);
+		} catch (...) {
+			// Keep the default/existing value on parsing failure
+		}
 	}
 	Debug debug{};
 };
