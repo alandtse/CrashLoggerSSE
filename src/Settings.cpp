@@ -58,7 +58,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks. Default: true\n;When enabled, press Ctrl+Shift+F12 while game is frozen to generate dump.\n;Set to 0 to disable (no monitoring thread will be created).");
 
 	// Parse hotkey combination (comma-separated list of VK codes)
-	std::string hotkeyStr;
+	std::string hotkeyStr{ "17, 16, 123" };
 	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Default: 17, 16, 123\n;VK code reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes");
 
 	// Heap analysis section header
@@ -141,7 +141,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, flushLevel, section, "Flush Level", ";Log level to force messages to print from buffer. Default: 0");
 	get_value(a_ini, waitForDebugger, section, "Wait for Debugger for Crash", ";Enable if using VisualStudio to debug CrashLogger itself. Default: false\n;Set false otherwise because Crashlogger will not produce a crash until the debugger is detected.");
 
-	threadDumpHotkey.clear();
+	std::vector<int> parsedHotkey;
 	if (!hotkeyStr.empty()) {
 		std::istringstream iss(hotkeyStr);
 		std::string token;
@@ -151,12 +151,15 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 			token.erase(token.find_last_not_of(" \t") + 1);
 			if (!token.empty()) {
 				try {
-					threadDumpHotkey.push_back(std::stoi(token));
+					parsedHotkey.push_back(std::stoi(token));
 				} catch (...) {
 					// Skip invalid values
 				}
 			}
 		}
+	}
+	if (!parsedHotkey.empty()) {
+		threadDumpHotkey = std::move(parsedHotkey);
 	}
 }
 
