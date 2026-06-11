@@ -58,7 +58,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks. Default: true\n;When enabled, press Ctrl+Shift+F12 while game is frozen to generate dump.\n;Set to 0 to disable (no monitoring thread will be created).");
 
 	// Parse hotkey combination (comma-separated list of VK codes)
-	std::string hotkeyStr;
+	std::string hotkeyStr{ "17, 16, 123" };
 	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Default: 17, 16, 123\n;VK code reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes");
 
 	// Heap analysis section header
