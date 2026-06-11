@@ -358,7 +358,30 @@ namespace Crash
 
 		g_stopHotkeyThread = false;
 		g_hotkeyThread = std::jthread(HotkeyMonitorThreadFunction);
-		logger::info("Thread dump hotkey monitoring started (Ctrl+Shift+F12)"sv);
+
+		std::string hotkeyNames;
+		for (size_t i = 0; i < config.threadDumpHotkey.size(); ++i) {
+			if (i > 0) {
+				hotkeyNames += "+";
+			}
+			int vk = config.threadDumpHotkey[i];
+			if (vk == VK_CONTROL || vk == 17) {
+				hotkeyNames += "Ctrl";
+			} else if (vk == VK_SHIFT || vk == 16) {
+				hotkeyNames += "Shift";
+			} else if (vk == VK_MENU || vk == 18) {
+				hotkeyNames += "Alt";
+			} else if (vk >= VK_F1 && vk <= VK_F24) {
+				hotkeyNames += std::format("F{}", vk - VK_F1 + 1);
+			} else if (vk >= 'A' && vk <= 'Z') {
+				hotkeyNames += static_cast<char>(vk);
+			} else if (vk >= '0' && vk <= '9') {
+				hotkeyNames += static_cast<char>(vk);
+			} else {
+				hotkeyNames += std::to_string(vk);
+			}
+		}
+		logger::info("Thread dump hotkey monitoring started ({})", hotkeyNames);
 	}
 
 	void StopHotkeyMonitoring()
