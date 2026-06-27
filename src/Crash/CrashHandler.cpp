@@ -1786,15 +1786,8 @@ next_label:;
 			// overwriting SetUnhandledExceptionFilter).
 			::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
 
-			// __fastfail / fail-fast (int 29h) and /GS stack-cookie failures terminate the
-			// process WITHOUT invoking the top-level UnhandledExceptionFilter, so our normal
-			// logging path never runs -- WER pops a JIT-debugger modal instead and no crash
-			// log is written. The vectored handler still receives them at first chance, and
-			// these codes are always terminal (never handled-and-continued), so drive the full
-			// logger from here while the context is intact. UnhandledExceptions ends in
-			// TerminateProcess, so it never returns. The guard prevents re-entry if logging
-			// itself trips a fast-fail. (Also catches CRT abort()/std::terminate, which
-			// __fastfail with STATUS_STACK_BUFFER_OVERRUN.)
+			// __fastfail and /GS-cookie failures bypass SetUnhandledExceptionFilter; VEH catches them.
+			// Guard prevents re-entry if logging itself trips a fast-fail.
 			if (a_exception && a_exception->ExceptionRecord) {
 				switch (a_exception->ExceptionRecord->ExceptionCode) {
 				case 0xC0000409:  // STATUS_STACK_BUFFER_OVERRUN (__fastfail, /GS, abort)
