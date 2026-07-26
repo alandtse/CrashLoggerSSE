@@ -5,7 +5,7 @@
   "port-version": 0,
   "description": "SKSE/SKSEVR plugin that generates crash logs when the game Just Works™.",
   "homepage": "https://github.com/alandtse/CrashLoggerSSE",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "features": {
     "plugin": {
       "description": "Build the SKSE plugin.",
