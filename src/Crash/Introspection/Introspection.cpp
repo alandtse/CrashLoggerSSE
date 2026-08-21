@@ -86,7 +86,7 @@ namespace Crash::Introspection::SSE
 				std::string handleString;
 				if (a_skyrimVm) {
 					RE::BSFixedString handle;
-					a_skyrimVm->handlePolicy.ConvertHandleToString(obj->GetHandle(), handle);
+					a_skyrimVm->GetHandlePolicy().ConvertHandleToString(obj->GetHandle(), handle);
 					if (handle.c_str() && handle[0]) {
 						handleString = handle.c_str();
 					}
@@ -2055,7 +2055,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->handlePolicy;
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetHandlePolicy();
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
