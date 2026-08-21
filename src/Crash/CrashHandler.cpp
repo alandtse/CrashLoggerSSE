@@ -1792,6 +1792,7 @@ next_label:;
 				switch (a_exception->ExceptionRecord->ExceptionCode) {
 				case 0xC0000409:  // STATUS_STACK_BUFFER_OVERRUN (__fastfail, /GS, abort)
 				case 0xC0000602:  // STATUS_FAIL_FAST_EXCEPTION
+				case 0xC0000374:  // STATUS_HEAP_CORRUPTION (RtlReportFatalFailure, same fastfail path)
 					{
 						static std::atomic_bool handling{ false };
 						bool expected = false;
