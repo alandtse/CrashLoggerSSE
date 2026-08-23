@@ -31,7 +31,12 @@ run inside the open Ghidra session (PdbGen script per program), since it needs t
 analyzed project. This script packages whatever PDBs are currently on disk; pass
 --require-fresh <days> to refuse stale PDBs so you don't ship an outdated symbol set.
 
-Requires: pip install pyfomod
+Pass --upload --nexus-file-id <id> to push the built archive straight to Nexus as a new
+file version (Nexus's public v3 API, no CI involved) instead of uploading it by hand.
+The target file_id must already exist on the mod page -- Nexus's API can only add a
+version to an existing file entry, not create a new one; create it once via the website.
+
+Requires: pip install pyfomod requests
 """
 
 import argparse
@@ -40,8 +45,10 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 import pyfomod
+import requests
 
 # Default 7-Zip location on Windows; override with --sevenzip.
 DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
@@ -184,6 +191,83 @@ def build_root(version, available):
     return root
 
 
+NEXUS_API_BASE = "https://api.nexusmods.com/v3"
+
+
+def upload_to_nexus(archive_path, file_id, api_key, version, display_name,
+                     mod_id=None, changelog=None, category="optional",
+                     archive_existing=False):
+    """Push archive_path to Nexus as a new version of file_id via the public v3 API --
+    the same multipart-upload + finalise + create-version flow as Nexus-Mods/upload-action,
+    reimplemented directly so it runs on the Ghidra machine without a CI dependency."""
+    session = requests.Session()
+    session.headers.update({"apikey": api_key, "User-Agent": "package_skyrim_pdbs.py"})
+
+    size = os.path.getsize(archive_path)
+    filename = os.path.basename(archive_path)
+
+    resp = session.post(f"{NEXUS_API_BASE}/uploads/multipart",
+                         json={"filename": filename, "size_bytes": str(size)})
+    resp.raise_for_status()
+    upload = resp.json()["data"]
+    upload_id = upload["id"]
+    part_urls = upload["part_presigned_urls"]
+    part_size = upload["part_size_bytes"]
+    complete_url = upload["complete_presigned_url"]
+    print(f"  multipart upload {upload_id}: {len(part_urls)} part(s) x {human_size(part_size)}")
+
+    parts = []
+    with open(archive_path, "rb") as f:
+        for i, part_url in enumerate(part_urls, start=1):
+            chunk = f.read(part_size)
+            part_resp = requests.put(part_url, data=chunk,
+                                      headers={"Content-Type": "application/octet-stream",
+                                               "Content-Length": str(len(chunk))})
+            part_resp.raise_for_status()
+            etag = part_resp.headers["ETag"].strip('"')
+            parts.append((i, etag))
+            print(f"  uploaded part {i}/{len(part_urls)}")
+
+    complete_xml = "<CompleteMultipartUpload>\n" + "\n".join(
+        f"  <Part>\n    <PartNumber>{n}</PartNumber>\n    <ETag>{tag}</ETag>\n  </Part>" for n, tag in parts
+    ) + "\n</CompleteMultipartUpload>"
+    complete_resp = requests.post(complete_url, data=complete_xml,
+                                   headers={"Content-Type": "application/xml"})
+    complete_resp.raise_for_status()
+
+    finalise_resp = session.post(f"{NEXUS_API_BASE}/uploads/{upload_id}/finalise")
+    finalise_resp.raise_for_status()
+
+    for attempt in range(60):
+        state_resp = session.get(f"{NEXUS_API_BASE}/uploads/{upload_id}")
+        state_resp.raise_for_status()
+        state = state_resp.json()["data"]["state"]
+        if state == "available":
+            break
+        time.sleep(min(2 * 1.5 ** attempt, 30))
+    else:
+        raise TimeoutError(f"upload {upload_id} did not become available in time")
+
+    version_resp = session.post(f"{NEXUS_API_BASE}/mod-files/{file_id}/versions", json={
+        "upload_id": upload_id,
+        "name": display_name,
+        "version": version,
+        "file_category": category,
+        "archive_existing_file": archive_existing,
+    })
+    version_resp.raise_for_status()
+    version_id = version_resp.json()["data"]["version"]["id"]
+    print(f"  created file version {version_id} on file {file_id}")
+
+    if changelog and mod_id:
+        changelog_resp = session.post(f"{NEXUS_API_BASE}/mods/{mod_id}/changelogs",
+                                       json={"version": version, "changelog": changelog})
+        changelog_resp.raise_for_status()
+        print("  changelog entry added")
+
+    return version_id
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -197,11 +281,28 @@ def parse_args():
                    help="fail if any source PDB is older than DAYS (guards against shipping stale symbols)")
     p.add_argument("--version", default=None,
                    help="FOMOD version string (default: today's date, YYYY.MM.DD)")
+    p.add_argument("--upload", action="store_true",
+                   help="upload the built archive to Nexus as a new file version (requires --nexus-file-id)")
+    p.add_argument("--nexus-file-id", default=None,
+                   help="Nexus file_id to add a version to (must already exist -- create it once via the website)")
+    p.add_argument("--nexus-api-key", default=os.environ.get("NEXUS_API_KEY"),
+                   help="Nexus API key (default: $NEXUS_API_KEY)")
+    p.add_argument("--nexus-mod-id", default="59818", help="Nexus mod_id, for --changelog")
+    p.add_argument("--nexus-category", default="optional", help="Nexus file_category for the upload")
+    p.add_argument("--changelog", default=None, help="changelog text to attach (requires --nexus-mod-id)")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.upload:
+        if not args.nexus_file_id:
+            sys.exit("error: --upload requires --nexus-file-id")
+        if not args.nexus_api_key:
+            sys.exit("error: --upload requires --nexus-api-key or $NEXUS_API_KEY")
+        if args.changelog and not args.nexus_mod_id:
+            sys.exit("error: --changelog requires --nexus-mod-id")
+
     sevenzip = find_7z(args.sevenzip)
     args.out = os.path.abspath(args.out)
     version = args.version or datetime.date.today().strftime("%Y.%m.%d")
@@ -256,7 +357,19 @@ def main():
     if bad:
         print("Missing/stale runtimes were skipped (see FAIL lines above); "
               "regenerate them in Ghidra and re-run to include them.")
-    print(f"\nUpload {archive} to the mod's files (version: {version}).")
+
+    if args.upload:
+        if bad:
+            sys.exit("error: refusing to upload an archive missing runtimes -- fix the FAIL lines above first")
+        print(f"\nUploading to Nexus file {args.nexus_file_id} (mod {args.nexus_mod_id})...")
+        upload_to_nexus(archive, args.nexus_file_id, args.nexus_api_key, version,
+                         display_name=archive_name, mod_id=args.nexus_mod_id,
+                         changelog=args.changelog, category=args.nexus_category)
+        print("Uploaded.")
+    else:
+        print(f"\nUpload {archive} to the mod's files (version: {version}), "
+              f"or re-run with --upload --nexus-file-id <id>.")
+
     if bad:
         sys.exit(1)
 
