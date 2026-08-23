@@ -167,10 +167,10 @@ def build_root(version, available):
 
         option_type = pyfomod.Type()
         option_type.default = pyfomod.OptionType.OPTIONAL
-        # Each pattern is one gameDependency threshold; the mod manager evaluates them
-        # top-to-bottom, first match wins -- `available` must stay highest-game_version-first
-        # or the wrong option ends up Recommended.
-        for other_key, other_cfg in available:
+        # Patterns are evaluated top-to-bottom, first match wins. Iterate RUNTIMES, not
+        # `available` -- a missing runtime's threshold must still intercept, or a
+        # higher-version install falls through and gets recommended a mismatched PDB.
+        for other_key, other_cfg in RUNTIMES.items():
             conditions = pyfomod.Conditions()
             conditions[None] = other_cfg["game_version"]
             is_self = other_key == key
