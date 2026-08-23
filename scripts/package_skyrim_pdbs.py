@@ -54,7 +54,7 @@ import requests
 DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
 
 # Runtime table. Edit paths here if a game install moves.
-#   key            : short id used on the CLI (--runtimes se ae se17 vr)
+#   key            : short id used on the CLI (--runtimes se ae ae17 vr)
 #   src_pdb        : where Ghidra/pdbgen writes this runtime's PDB
 #   consumer_name  : filename DIA looks for inside Data/SKSE/Plugins/ (the exe's basename + .pdb)
 #   display_name   : shown in the FOMOD option list and used in the version string
@@ -64,7 +64,7 @@ DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
 # stale prior deploys. "se" (1.5.97) has no distinct source file; verify the right build
 # is behind the plain SkyrimSE.exe import before packaging.
 RUNTIMES = {
-    "se17": {
+    "ae17": {
         "src_pdb": r"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\SkyrimSE.1.7.99.pdb",
         "consumer_name": "SkyrimSE.pdb",
         "display_name": "SkyrimSE 1.7.99.0",
