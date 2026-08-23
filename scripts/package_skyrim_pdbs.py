@@ -14,15 +14,8 @@ hand, this builds ONE archive with a FOMOD installer: a single install step offe
 4 runtime PDBs as mutually-exclusive options, gameDependency-conditioned on the
 installed Skyrim version so the mod manager pre-selects the matching one automatically
 -- same mechanism as our sister repo open-shaders uses for its shader-cache picker
-(.github/scripts/build-fomod-package.py), and same reasoning: gameDependency has no
-comparison operator or negation, only "installed game version >= X", so each option's
-pattern list checks every runtime's threshold ordered highest-to-lowest game_version
-first so the first (most specific) match wins, rather than a lower threshold also
-matching and overriding it. RUNTIMES below must stay ordered highest game_version first
-for this to hold; a runtime on a wholly different game (VR) still composes correctly
-here since its threshold (1.4.15) is numerically lower than every SE/AE threshold, so an
-SE/AE install always intercepts before ever reaching VR's pattern, and a VR install
-(never >= 1.5.97) falls through to VR's own pattern.
+(.github/scripts/build-fomod-package.py). See build_root() for the threshold-ordering
+mechanics; RUNTIMES below must stay ordered highest game_version first.
 
 Per runtime:
   1. locate the freshest source PDB (Ghidra/pdbgen output),
@@ -59,16 +52,9 @@ DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
 #   consumer_name  : filename DIA looks for inside Data/SKSE/Plugins/ (the exe's basename + .pdb)
 #   display_name   : shown in the FOMOD option list and used in the version string
 #   game_version   : gameDependency threshold -- MUST stay ordered highest-to-lowest below
-#                    (see module docstring for why)
-# IMPORTANT: PdbGen writes the .pdb next to each program's IMPORT path, which is the
-# game ROOT dir (where the .exe lives), NOT Data/SKSE/Plugins/. The Plugins copies are
-# the previously-deployed PDBs and go stale; always source from the root (PdbGen output).
-#
-# Each runtime is imported into Ghidra from its own distinctly-named exe copy so its
-# PdbGen output doesn't collide with another runtime's -- except 1.5.97, which is always
-# SkyrimSE.pdb (unsuffixed): that's the plain SkyrimSE.exe import. If the wrong build is
-# behind that path when this runs, that's a Ghidra-side problem to fix before packaging,
-# not something this script tries to detect -- it only checks whether the file exists.
+# Source from the game root (PdbGen's output dir), not Data/SKSE/Plugins/ -- those are
+# stale prior deploys. "se" (1.5.97) has no distinct source file; verify the right build
+# is behind the plain SkyrimSE.exe import before packaging.
 RUNTIMES = {
     "se17": {
         "src_pdb": r"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\SkyrimSE.1.7.99.pdb",
@@ -181,11 +167,9 @@ def build_root(version, available):
 
         option_type = pyfomod.Type()
         option_type.default = pyfomod.OptionType.OPTIONAL
-        # All available runtimes, not just this one: each pattern is a single
-        # gameDependency threshold, evaluated top-to-bottom by the mod manager --
-        # first match wins. Listing them highest-game_version-first here (mirroring
-        # RUNTIMES' own order) means a higher runtime's threshold always intercepts
-        # before a lower one's, so only the actual best match ends up Recommended.
+        # Each pattern is one gameDependency threshold; the mod manager evaluates them
+        # top-to-bottom, first match wins -- `available` must stay highest-game_version-first
+        # or the wrong option ends up Recommended.
         for other_key, other_cfg in available:
             conditions = pyfomod.Conditions()
             conditions[None] = other_cfg["game_version"]
