@@ -102,7 +102,8 @@ MOD_DESCRIPTION = (
     "Pick the variant matching your installed game version; the mod manager "
     "pre-selects it automatically where it can detect your game version."
 )
-MOD_WEBSITE = "https://www.nexusmods.com/skyrimspecialedition/mods/59818"
+NEXUS_MOD_ID = "59818"  # CrashLogger's mod page
+MOD_WEBSITE = f"https://www.nexusmods.com/skyrimspecialedition/mods/{NEXUS_MOD_ID}"
 STEP_PAGE_NAME = "Runtime PDB"
 STEP_GROUP_NAME = "Symbol file for your installed Skyrim version"
 
@@ -287,7 +288,7 @@ def parse_args():
                    help="Nexus file_id to add a version to (must already exist -- create it once via the website)")
     p.add_argument("--nexus-api-key", default=os.environ.get("NEXUS_API_KEY"),
                    help="Nexus API key (default: $NEXUS_API_KEY)")
-    p.add_argument("--nexus-mod-id", default="59818", help="Nexus mod_id, for --changelog")
+    p.add_argument("--nexus-mod-id", default=NEXUS_MOD_ID, help="Nexus mod_id, for --changelog")
     p.add_argument("--nexus-category", default="optional", help="Nexus file_category for the upload")
     p.add_argument("--changelog", default=None, help="changelog text to attach (requires --nexus-mod-id)")
     return p.parse_args()
