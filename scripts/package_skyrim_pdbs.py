@@ -59,6 +59,7 @@ DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
 #   consumer_name  : filename DIA looks for inside Data/SKSE/Plugins/ (the exe's basename + .pdb)
 #   display_name   : shown in the FOMOD option list and used in the version string
 #   game_version   : gameDependency threshold -- MUST stay ordered highest-to-lowest below
+#   program_name   : Ghidra project path passed to scripts.run (regenerate_pdbs.py)
 # Source from the game root (PdbGen's output dir), not Data/SKSE/Plugins/ -- those are
 # stale prior deploys. "se" (1.5.97) has no distinct source file; verify the right build
 # is behind the plain SkyrimSE.exe import before packaging.
@@ -68,6 +69,7 @@ RUNTIMES = {
         "consumer_name": "SkyrimSE.pdb",
         "display_name": "SkyrimSE 1.7.99.0",
         "game_version": "1.7.99",
+        "program_name": "/SkyrimSE.1.7.99.exe",
     },
     "ae": {
         # AE imports from SkyrimSE.1170.exe -> PdbGen writes SkyrimSE.1170.pdb in the game root.
@@ -75,6 +77,7 @@ RUNTIMES = {
         "consumer_name": "SkyrimSE.pdb",  # same as SE: both runtimes execute SkyrimSE.exe; GUID disambiguates
         "display_name": "SkyrimSE 1.6.1170.0",
         "game_version": "1.6.1170",
+        "program_name": "/SkyrimSE.1170.exe",
     },
     "se": {
         # Always the unsuffixed SkyrimSE.pdb -- the plain SkyrimSE.exe import.
@@ -82,12 +85,14 @@ RUNTIMES = {
         "consumer_name": "SkyrimSE.pdb",
         "display_name": "SkyrimSE 1.5.97.0",
         "game_version": "1.5.97",
+        "program_name": "/SkyrimSE.exe",
     },
     "vr": {
         "src_pdb": r"E:\SteamLibrary\steamapps\common\SkyrimVR\SkyrimVR.pdb",
         "consumer_name": "SkyrimVR.pdb",
         "display_name": "SkyrimVR 1.4.15.0",
         "game_version": "1.4.15",
+        "program_name": "/SkyrimVR.exe",
     },
 }
 
@@ -282,6 +287,8 @@ def parse_args():
                    help="fail if any source PDB is older than DAYS (guards against shipping stale symbols)")
     p.add_argument("--version", default=None,
                    help="FOMOD version string (default: today's date, YYYY.MM.DD)")
+    p.add_argument("--regenerate", action="store_true",
+                   help="regenerate PDBs in the open Ghidra session first (via regenerate_pdbs.py/GhidrAssistMCP)")
     p.add_argument("--upload", action="store_true",
                    help="upload the built archive to Nexus as a new file version (requires --nexus-file-id)")
     p.add_argument("--nexus-file-id", default=None,
@@ -303,6 +310,12 @@ def main():
             sys.exit("error: --upload requires --nexus-api-key or $NEXUS_API_KEY")
         if args.changelog and not args.nexus_mod_id:
             sys.exit("error: --changelog requires --nexus-mod-id")
+
+    if args.regenerate:
+        import regenerate_pdbs
+        print(f"Regenerating {' '.join(args.runtimes)} via GhidrAssistMCP...\n")
+        regenerate_pdbs.regenerate_runtimes(args.runtimes)
+        print()
 
     sevenzip = find_7z(args.sevenzip)
     args.out = os.path.abspath(args.out)
