@@ -355,12 +355,12 @@ def main():
 
     pyfomod.write(root, stage_root)
 
-    archive_name = f"CrashLogger-PDBs-{version}.zip"
+    archive_name = f"CrashLogger-PDBs-{version}.7z"
     archive = os.path.join(args.out, archive_name)
     if os.path.isfile(archive):
         os.remove(archive)
     proc = subprocess.run(
-        [sevenzip, "a", "-tzip", "-mx=9", archive, "."],
+        [sevenzip, "a", "-t7z", "-mx=9", archive, "."],
         cwd=stage_root, capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"error: 7z failed: {proc.stdout}\n{proc.stderr}", file=sys.stderr)
