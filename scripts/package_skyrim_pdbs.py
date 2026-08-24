@@ -35,12 +35,16 @@ Pass --upload --nexus-file-id <id> to push the built archive straight to Nexus a
 file version (Nexus's public v3 API, no CI involved) instead of uploading it by hand.
 The target file_id must already exist on the mod page -- Nexus's API can only add a
 version to an existing file entry, not create a new one; create it once via the website.
+--upload skips the actual upload (but still builds the archive) if the staged PDBs'
+content hash matches the last successful upload -- pass --force-upload to upload anyway.
 
 Requires: pip install pyfomod requests
 """
 
 import argparse
 import datetime
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -52,6 +56,32 @@ import requests
 
 # Default 7-Zip location on Windows; override with --sevenzip.
 DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
+
+# Shared pipeline state (per-runtime Ghidra modification numbers, last-uploaded content
+# fingerprint) -- lives under the already-gitignored pdb_artifacts/.
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pdb_artifacts", ".pdbgen_state.json")
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"runtimes": {}, "last_upload": {}}
+
+
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 # Runtime table. Edit paths here if a game install moves.
 #   key            : short id used on the CLI (--runtimes se ae ae17 vr)
@@ -139,7 +169,7 @@ def find_7z(explicit):
 def stage_runtime(key, cfg, stage_dir, require_fresh):
     src = cfg["src_pdb"]
     if not os.path.isfile(src):
-        return (key, False, f"source PDB missing: {src}", None)
+        return (key, False, f"source PDB missing: {src}", None, None)
 
     mtime = os.path.getmtime(src)
     age_days = (datetime.datetime.now().timestamp() - mtime) / 86400.0
@@ -147,7 +177,7 @@ def stage_runtime(key, cfg, stage_dir, require_fresh):
     if require_fresh is not None and age_days > require_fresh:
         return (key, False,
                 f"PDB is {age_days:.1f} days old (> --require-fresh {require_fresh}); "
-                f"regenerate in Ghidra first. {src}", None)
+                f"regenerate in Ghidra first. {src}", None, None)
 
     plugin_dir = os.path.join(stage_dir, PLUGINS_REL)
     os.makedirs(plugin_dir, exist_ok=True)
@@ -157,7 +187,7 @@ def stage_runtime(key, cfg, stage_dir, require_fresh):
     asize = os.path.getsize(staged_pdb)
     return (key, True,
             f"{cfg['display_name']}  ({human_size(asize)})  "
-            f"<- {os.path.basename(src)} from {gen_date:%Y-%m-%d %H:%M}", gen_date)
+            f"<- {os.path.basename(src)} from {gen_date:%Y-%m-%d %H:%M}", gen_date, sha256_of(src))
 
 
 def build_root(version, available):
@@ -299,6 +329,8 @@ def parse_args():
                    help="FOMOD version string (default: today's date, YYYY.MM.DD)")
     p.add_argument("--regenerate", action="store_true",
                    help="regenerate PDBs in the open Ghidra session first (via regenerate_pdbs.py/GhidrAssistMCP)")
+    p.add_argument("--force-regenerate", action="store_true",
+                   help="with --regenerate, regenerate even if Ghidra hasn't changed since the last regen")
     p.add_argument("--upload", action="store_true",
                    help="upload the built archive to Nexus as a new file version")
     p.add_argument("--nexus-file-id", default=NEXUS_FILE_ID,
@@ -314,6 +346,8 @@ def parse_args():
                    help="Nexus file description")
     p.add_argument("--archive-existing", action=argparse.BooleanOptionalAction, default=True,
                    help="move the file's current version to Old Files when uploading a new one (default: on)")
+    p.add_argument("--force-upload", action="store_true",
+                   help="upload even if the PDB content hash matches the last upload")
     p.add_argument("--changelog", default=None, help="changelog text to attach (requires --nexus-mod-id)")
     return p.parse_args()
 
@@ -331,7 +365,7 @@ def main():
     if args.regenerate:
         import regenerate_pdbs
         print(f"Regenerating {' '.join(args.runtimes)} via GhidrAssistMCP...\n")
-        regenerate_pdbs.regenerate_runtimes(args.runtimes)
+        regenerate_pdbs.regenerate_runtimes(args.runtimes, force=args.force_regenerate)
         print()
 
     sevenzip = find_7z(args.sevenzip)
@@ -354,14 +388,19 @@ def main():
 
     ok = [r for r in results if r[1]]
     bad = [r for r in results if not r[1]]
-    for key, success, msg, _ in results:
+    for key, success, msg, _, _ in results:
         print(f"  [{'OK ' if success else 'FAIL'}] {key}: {msg}")
 
     if not ok:
         print("\nno runtimes staged; nothing to package.")
         sys.exit(1)
 
-    available = [(key, RUNTIMES[key]) for key, success, _, _ in results if success]
+    available = [(key, RUNTIMES[key]) for key, success, _, _, _ in results if success]
+    # Hash the PDBs, not the final .7z -- verified empirically that repacking identical
+    # source PDBs produces a different archive hash each time (member order varies).
+    content_fingerprint = hashlib.sha256(
+        "\n".join(f"{key}:{sha}" for key, _, _, _, sha in sorted(ok, key=lambda r: r[0])).encode()
+    ).hexdigest()
     root = build_root(version, available)
     errors = root.validate()
     if errors:
@@ -392,12 +431,21 @@ def main():
     if args.upload:
         if bad:
             sys.exit("error: refusing to upload an archive missing runtimes -- fix the FAIL lines above first")
-        print(f"\nUploading to Nexus file {args.nexus_file_id} (mod {args.nexus_mod_id})...")
-        upload_to_nexus(archive, args.nexus_file_id, args.nexus_api_key, version,
-                         display_name=args.nexus_display_name, description=args.description,
-                         mod_id=args.nexus_mod_id, changelog=args.changelog,
-                         category=args.nexus_category, archive_existing=args.archive_existing)
-        print("Uploaded.")
+        state = load_state()
+        last = state.get("last_upload", {})
+        if not args.force_upload and last.get("content_fingerprint") == content_fingerprint:
+            print(f"\nPDB content unchanged since last upload (version {last.get('version')}); "
+                  "skipping. Pass --force-upload to upload anyway.")
+        else:
+            print(f"\nUploading to Nexus file {args.nexus_file_id} (mod {args.nexus_mod_id})...")
+            upload_to_nexus(archive, args.nexus_file_id, args.nexus_api_key, version,
+                             display_name=args.nexus_display_name, description=args.description,
+                             mod_id=args.nexus_mod_id, changelog=args.changelog,
+                             category=args.nexus_category, archive_existing=args.archive_existing)
+            print("Uploaded.")
+            state["last_upload"] = {"content_fingerprint": content_fingerprint, "version": version,
+                                     "uploaded_at": datetime.datetime.now().isoformat()}
+            save_state(state)
     else:
         print(f"\nUpload {archive} to the mod's files (version: {version}), "
               f"or re-run with --upload --nexus-file-id <id>.")
