@@ -99,7 +99,10 @@ async def regenerate(runtime_keys, mcp_url, force):
             for key in runtime_keys:
                 cfg = RUNTIMES[key]
                 print(f"Regenerating {key} ({cfg['program_name']})...")
-                result = await regenerate_one(session, key, cfg, state, force)
+                try:
+                    result = await regenerate_one(session, key, cfg, state, force)
+                except Exception as e:
+                    result = (key, False, f"{cfg['program_name']}: MCP request failed: {e}")
                 results.append(result)
                 _, ok, msg = result
                 print(f"  [{'OK ' if ok else 'FAIL'}] {msg}")

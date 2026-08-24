@@ -57,8 +57,6 @@ import requests
 # Default 7-Zip location on Windows; override with --sevenzip.
 DEFAULT_7Z = r"C:\Program Files\7-Zip\7z.exe"
 
-# Shared pipeline state (per-runtime Ghidra modification numbers, last-uploaded content
-# fingerprint) -- lives under the already-gitignored pdb_artifacts/.
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pdb_artifacts", ".pdbgen_state.json")
 
 
@@ -187,7 +185,7 @@ def stage_runtime(key, cfg, stage_dir, require_fresh):
     asize = os.path.getsize(staged_pdb)
     return (key, True,
             f"{cfg['display_name']}  ({human_size(asize)})  "
-            f"<- {os.path.basename(src)} from {gen_date:%Y-%m-%d %H:%M}", gen_date, sha256_of(src))
+            f"<- {os.path.basename(src)} from {gen_date:%Y-%m-%d %H:%M}", gen_date, sha256_of(staged_pdb))
 
 
 def build_root(version, available):
@@ -310,11 +308,16 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name, descr
     print(f"  created file version {version_id} on file {file_id}")
 
     if changelog and mod_id:
-        changelog_resp = session.post(f"{NEXUS_API_BASE}/mods/{mod_id}/changelogs",
-                                       json={"version": version, "changelog": changelog},
-                                       timeout=NEXUS_TIMEOUT)
-        changelog_resp.raise_for_status()
-        print("  changelog entry added")
+        # Non-fatal: the file version above already exists regardless -- a changelog
+        # failure must not skip recording the upload, or a retry duplicates the version.
+        try:
+            changelog_resp = session.post(f"{NEXUS_API_BASE}/mods/{mod_id}/changelogs",
+                                           json={"version": version, "changelog": changelog},
+                                           timeout=NEXUS_TIMEOUT)
+            changelog_resp.raise_for_status()
+            print("  changelog entry added")
+        except requests.exceptions.RequestException as e:
+            print(f"  WARNING: changelog entry failed (file version {version_id} still created): {e}")
 
     return version_id
 
