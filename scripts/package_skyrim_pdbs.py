@@ -109,6 +109,15 @@ MOD_DESCRIPTION = (
 )
 NEXUS_MOD_ID = "59818"  # CrashLogger's mod page
 MOD_WEBSITE = f"https://www.nexusmods.com/skyrimspecialedition/mods/{NEXUS_MOD_ID}"
+
+# Matches the "Skyrim PDBs" file entry (file_id 794129) created manually on the mod page --
+# keep these in sync with whatever's set there so automated uploads look like a continuation
+# of that entry, not a different file.
+NEXUS_FILE_ID = "794129"
+NEXUS_FILE_DISPLAY_NAME = "Skyrim PDBs"
+NEXUS_FILE_DESCRIPTION = (
+    "This is a reverse engineered PDB to help identify game addresses. This is a fomod all-in-one."
+)
 STEP_PAGE_NAME = "Runtime PDB"
 STEP_GROUP_NAME = "Symbol file for your installed Skyrim version"
 
@@ -200,9 +209,9 @@ def build_root(version, available):
 NEXUS_API_BASE = "https://api.nexusmods.com/v3"
 
 
-def upload_to_nexus(archive_path, file_id, api_key, version, display_name,
+def upload_to_nexus(archive_path, file_id, api_key, version, display_name, description,
                      mod_id=None, changelog=None, category="optional",
-                     archive_existing=False):
+                     archive_existing=True):
     """Push archive_path to Nexus as a new version of file_id via the public v3 API --
     the same multipart-upload + finalise + create-version flow as Nexus-Mods/upload-action,
     reimplemented directly so it runs on the Ghidra machine without a CI dependency."""
@@ -257,6 +266,7 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name,
     version_resp = session.post(f"{NEXUS_API_BASE}/mod-files/{file_id}/versions", json={
         "upload_id": upload_id,
         "name": display_name,
+        "description": description,
         "version": version,
         "file_category": category,
         "archive_existing_file": archive_existing,
@@ -290,13 +300,20 @@ def parse_args():
     p.add_argument("--regenerate", action="store_true",
                    help="regenerate PDBs in the open Ghidra session first (via regenerate_pdbs.py/GhidrAssistMCP)")
     p.add_argument("--upload", action="store_true",
-                   help="upload the built archive to Nexus as a new file version (requires --nexus-file-id)")
-    p.add_argument("--nexus-file-id", default=None,
-                   help="Nexus file_id to add a version to (must already exist -- create it once via the website)")
+                   help="upload the built archive to Nexus as a new file version")
+    p.add_argument("--nexus-file-id", default=NEXUS_FILE_ID,
+                   help="Nexus file_id to add a version to (default: the 'Skyrim PDBs' entry, "
+                        f"{NEXUS_FILE_ID}); must already exist -- create it once via the website")
     p.add_argument("--nexus-api-key", default=os.environ.get("NEXUS_API_KEY"),
                    help="Nexus API key (default: $NEXUS_API_KEY)")
     p.add_argument("--nexus-mod-id", default=NEXUS_MOD_ID, help="Nexus mod_id, for --changelog")
     p.add_argument("--nexus-category", default="optional", help="Nexus file_category for the upload")
+    p.add_argument("--nexus-display-name", default=NEXUS_FILE_DISPLAY_NAME,
+                   help="Nexus-facing file display name")
+    p.add_argument("--description", default=NEXUS_FILE_DESCRIPTION,
+                   help="Nexus file description")
+    p.add_argument("--archive-existing", action=argparse.BooleanOptionalAction, default=True,
+                   help="move the file's current version to Old Files when uploading a new one (default: on)")
     p.add_argument("--changelog", default=None, help="changelog text to attach (requires --nexus-mod-id)")
     return p.parse_args()
 
@@ -377,8 +394,9 @@ def main():
             sys.exit("error: refusing to upload an archive missing runtimes -- fix the FAIL lines above first")
         print(f"\nUploading to Nexus file {args.nexus_file_id} (mod {args.nexus_mod_id})...")
         upload_to_nexus(archive, args.nexus_file_id, args.nexus_api_key, version,
-                         display_name=archive_name, mod_id=args.nexus_mod_id,
-                         changelog=args.changelog, category=args.nexus_category)
+                         display_name=args.nexus_display_name, description=args.description,
+                         mod_id=args.nexus_mod_id, changelog=args.changelog,
+                         category=args.nexus_category, archive_existing=args.archive_existing)
         print("Uploaded.")
     else:
         print(f"\nUpload {archive} to the mod's files (version: {version}), "
