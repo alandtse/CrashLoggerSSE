@@ -30,6 +30,9 @@ from package_skyrim_pdbs import RUNTIMES, load_state, save_state
 DEFAULT_MCP_URL = os.environ.get("GHIDRA_MCP_URL", "http://localhost:8080/mcp")
 POLL_INTERVAL_SECONDS = 3
 SCRIPT_TIMEOUT_SECONDS = 300
+# Bounds each individual MCP request -- SCRIPT_TIMEOUT_SECONDS only bounds our own polling
+# loop, not a single hung call, which would otherwise block the run indefinitely.
+MCP_READ_TIMEOUT_SECONDS = 60
 
 
 def text_of(result):
@@ -90,7 +93,7 @@ async def regenerate_one(session, key, cfg, state, force):
 async def regenerate(runtime_keys, mcp_url, force):
     state = load_state()
     async with sse_client(mcp_url) as (read, write):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(read, write, read_timeout_seconds=MCP_READ_TIMEOUT_SECONDS) as session:
             await session.initialize()
             results = []
             for key in runtime_keys:

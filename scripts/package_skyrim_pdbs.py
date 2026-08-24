@@ -237,6 +237,8 @@ def build_root(version, available):
 
 
 NEXUS_API_BASE = "https://api.nexusmods.com/v3"
+NEXUS_TIMEOUT = (10, 30)  # (connect, read) seconds -- metadata calls
+NEXUS_UPLOAD_TIMEOUT = (10, 300)  # part PUTs transfer real file bytes, need more time
 
 
 def upload_to_nexus(archive_path, file_id, api_key, version, display_name, description,
@@ -252,7 +254,7 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name, descr
     filename = os.path.basename(archive_path)
 
     resp = session.post(f"{NEXUS_API_BASE}/uploads/multipart",
-                         json={"filename": filename, "size_bytes": str(size)})
+                         json={"filename": filename, "size_bytes": str(size)}, timeout=NEXUS_TIMEOUT)
     resp.raise_for_status()
     upload = resp.json()["data"]
     upload_id = upload["id"]
@@ -267,7 +269,8 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name, descr
             chunk = f.read(part_size)
             part_resp = requests.put(part_url, data=chunk,
                                       headers={"Content-Type": "application/octet-stream",
-                                               "Content-Length": str(len(chunk))})
+                                               "Content-Length": str(len(chunk))},
+                                      timeout=NEXUS_UPLOAD_TIMEOUT)
             part_resp.raise_for_status()
             etag = part_resp.headers["ETag"].strip('"')
             parts.append((i, etag))
@@ -277,14 +280,15 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name, descr
         f"  <Part>\n    <PartNumber>{n}</PartNumber>\n    <ETag>{tag}</ETag>\n  </Part>" for n, tag in parts
     ) + "\n</CompleteMultipartUpload>"
     complete_resp = requests.post(complete_url, data=complete_xml,
-                                   headers={"Content-Type": "application/xml"})
+                                   headers={"Content-Type": "application/xml"},
+                                   timeout=NEXUS_TIMEOUT)
     complete_resp.raise_for_status()
 
-    finalise_resp = session.post(f"{NEXUS_API_BASE}/uploads/{upload_id}/finalise")
+    finalise_resp = session.post(f"{NEXUS_API_BASE}/uploads/{upload_id}/finalise", timeout=NEXUS_TIMEOUT)
     finalise_resp.raise_for_status()
 
     for attempt in range(60):
-        state_resp = session.get(f"{NEXUS_API_BASE}/uploads/{upload_id}")
+        state_resp = session.get(f"{NEXUS_API_BASE}/uploads/{upload_id}", timeout=NEXUS_TIMEOUT)
         state_resp.raise_for_status()
         state = state_resp.json()["data"]["state"]
         if state == "available":
@@ -300,14 +304,15 @@ def upload_to_nexus(archive_path, file_id, api_key, version, display_name, descr
         "version": version,
         "file_category": category,
         "archive_existing_file": archive_existing,
-    })
+    }, timeout=NEXUS_TIMEOUT)
     version_resp.raise_for_status()
     version_id = version_resp.json()["data"]["version"]["id"]
     print(f"  created file version {version_id} on file {file_id}")
 
     if changelog and mod_id:
         changelog_resp = session.post(f"{NEXUS_API_BASE}/mods/{mod_id}/changelogs",
-                                       json={"version": version, "changelog": changelog})
+                                       json={"version": version, "changelog": changelog},
+                                       timeout=NEXUS_TIMEOUT)
         changelog_resp.raise_for_status()
         print("  changelog entry added")
 
@@ -365,7 +370,12 @@ def main():
     if args.regenerate:
         import regenerate_pdbs
         print(f"Regenerating {' '.join(args.runtimes)} via GhidrAssistMCP...\n")
-        regenerate_pdbs.regenerate_runtimes(args.runtimes, force=args.force_regenerate)
+        regen_results = regenerate_pdbs.regenerate_runtimes(args.runtimes, force=args.force_regenerate)
+        failed_regen = {key for key, ok, _ in regen_results if not ok}
+        if failed_regen:
+            print(f"\nRegeneration failed for {', '.join(sorted(failed_regen))} -- excluding from this "
+                  "run rather than packaging a possibly-stale existing PDB for them.")
+            args.runtimes = [k for k in args.runtimes if k not in failed_regen]
         print()
 
     sevenzip = find_7z(args.sevenzip)
@@ -431,6 +441,10 @@ def main():
     if args.upload:
         if bad:
             sys.exit("error: refusing to upload an archive missing runtimes -- fix the FAIL lines above first")
+        if set(args.runtimes) != set(RUNTIMES):
+            sys.exit(f"error: refusing to upload a partial archive ({', '.join(sorted(args.runtimes))} only) "
+                     "-- the uploaded file replaces the combined all-runtimes archive; "
+                     "run with all runtimes (default) to upload")
         state = load_state()
         last = state.get("last_upload", {})
         if not args.force_upload and last.get("content_fingerprint") == content_fingerprint:
