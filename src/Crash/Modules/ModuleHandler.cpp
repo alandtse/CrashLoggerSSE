@@ -147,7 +147,7 @@ namespace Crash::Modules
 		};
 
 		class Fallout4 final :
-			public Module
+		    public Module
 		{
 		private:
 			using super = Module;
