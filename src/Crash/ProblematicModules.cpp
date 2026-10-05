@@ -34,7 +34,7 @@ namespace Crash
 			return std::equal(a.begin(), a.end(), b.begin(), b.end(),
 				[](char ca, char cb) {
 					return ::tolower(static_cast<unsigned char>(ca)) ==
-				           ::tolower(static_cast<unsigned char>(cb));
+					       ::tolower(static_cast<unsigned char>(cb));
 				});
 		};
 
