@@ -26,6 +26,7 @@
         "rsm-binary-io",
         "spdlog",
         "vmaware",
+        "xbyak",
         "zycore",
         "zydis"
       ]

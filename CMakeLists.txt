@@ -42,6 +42,8 @@ set(sources
         src/Crash/PDB/PdbHandler.h
         src/Crash/ProblematicModules.cpp
         src/Crash/ProblematicModules.h
+        src/Crash/ModelDemandTracker.cpp
+        src/Crash/ModelDemandTracker.h
         src/Crash/Analysis.cpp
         src/Crash/Analysis.h
         src/Crash/CppException.cpp
@@ -91,6 +93,8 @@ set(CommonLibName "CommonLibSSE")
 set(_CRASHLOGGER_BUILD_TESTS ${BUILD_TESTS})
 # Disable tests for CommonLibSSE-NG dependency
 set(BUILD_TESTS OFF)
+# ModelDemandTracker builds its Demand() trampoline with Xbyak via Trampoline::allocate.
+set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
 add_subdirectory(${CommonLibPath} ${CommonLibName} EXCLUDE_FROM_ALL)
 include("${CommonLibPath}/cmake/CommonLibSSE.cmake")
 # Restore user's BUILD_TESTS preference
@@ -196,7 +200,8 @@ endif()
 # #######################################################################################################################
 add_compile_definitions(
         SPDLOG_COMPILED_LIB
-        SPDLOG_FMT_EXTERNAL)
+        SPDLOG_FMT_EXTERNAL
+        SKSE_SUPPORT_XBYAK)
 
 if(WIN32)
         add_compile_definitions(

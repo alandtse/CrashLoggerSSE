@@ -30,6 +30,9 @@ public:
 		int maxHeapsToCheck{ 1 };
 		int maxHeapIterationsPerHeap{ 1000 };
 
+		// Records recent BSModelDB::Demand() model paths per thread for the crash log.
+		bool enableModelPathTracking{ true };
+
 		// Thread context heuristics (label -> list of keywords)
 		std::vector<std::pair<std::string, std::vector<std::string>>> threadContextHeuristics;
 	};

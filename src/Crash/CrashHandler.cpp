@@ -5,6 +5,7 @@
 #include "Crash/CppException.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
+#include "Crash/ModelDemandTracker.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "Crash/ProblematicModules.h"
@@ -1051,6 +1052,22 @@ namespace Crash
 			}
 		}
 
+		void print_recent_model_demands_section(spdlog::logger& a_log)
+		{
+			try {
+				const auto paths = Crash::ModelDemandTracker::get_recent_paths_newest_first();
+				if (paths.empty())
+					return;
+
+				a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
+				for (const auto& path : paths) {
+					a_log.critical("\t{}"sv, path);
+				}
+			} catch (...) {
+				// Diagnostic-only section; never let a failure here affect the rest of the log.
+			}
+		}
+
 		void print_sysinfo(spdlog::logger& a_log)
 		{
 			a_log.critical("SYSTEM SPECS:"sv);
@@ -1599,6 +1616,7 @@ next_label:;
 
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
+				print([&]() { print_recent_model_demands_section(*log); }, "print_recent_model_demands");
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
