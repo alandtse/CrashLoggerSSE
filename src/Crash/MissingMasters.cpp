@@ -17,6 +17,13 @@ namespace Crash::MissingMasters
 		constexpr std::size_t MAX_MASTERS = 1024;
 		constexpr std::size_t MAX_DEPTH = 64;
 		constexpr std::size_t MAX_CHAINS = 32;
+		constexpr std::size_t MAX_HEADER_BYTES = 1u << 20;
+
+		// TES4 record header: signature, data size, flags, form id, version control, form version.
+		constexpr std::size_t RECORD_HEADER_SIZE = 24;
+		constexpr std::size_t SIGNATURE_SIZE = 4;
+		// Subrecord header: signature plus a 16-bit data size.
+		constexpr std::size_t SUBRECORD_HEADER_SIZE = 6;
 
 		struct Plugin
 		{
@@ -43,9 +50,10 @@ namespace Crash::MissingMasters
 			return std::string(a_str);
 		}
 
-		std::unordered_set<std::string> read_enabled_plugins()
+		std::unordered_set<std::string> read_enabled_plugins(bool& a_readable)
 		{
 			std::unordered_set<std::string> enabled;
+			a_readable = false;
 
 			wchar_t buffer[MAX_PATH]{};
 			const auto len = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
@@ -54,6 +62,9 @@ namespace Crash::MissingMasters
 
 			const auto folder = REL::Module::IsVR() ? L"Skyrim VR" : L"Skyrim Special Edition";
 			std::ifstream file(std::filesystem::path(buffer) / folder / L"Plugins.txt");
+			if (!file)
+				return enabled;
+			a_readable = true;
 			std::string line;
 			while (std::getline(file, line)) {
 				line = trim(line);
@@ -71,33 +82,33 @@ namespace Crash::MissingMasters
 			std::vector<std::string> masters;
 
 			std::ifstream file(std::filesystem::path(L"Data") / std::filesystem::u8path(a_name), std::ios::binary);
-			char header[24]{};
-			if (!file.read(header, sizeof(header)) || std::memcmp(header, "TES4", 4) != 0)
+			char header[RECORD_HEADER_SIZE]{};
+			if (!file.read(header, sizeof(header)) || std::memcmp(header, "TES4", SIGNATURE_SIZE) != 0)
 				return masters;
 
 			std::uint32_t dataSize = 0;
-			std::memcpy(&dataSize, header + 4, sizeof(dataSize));
+			std::memcpy(&dataSize, header + SIGNATURE_SIZE, sizeof(dataSize));
 
-			std::string data(std::min<std::size_t>(dataSize, 1u << 20), '\0');
+			std::string data(std::min<std::size_t>(dataSize, MAX_HEADER_BYTES), '\0');
 			if (!file.read(data.data(), static_cast<std::streamsize>(data.size())))
 				return masters;
 
-			for (std::size_t pos = 0; pos + 6 <= data.size() && masters.size() < MAX_MASTERS;) {
+			for (std::size_t pos = 0; pos + SUBRECORD_HEADER_SIZE <= data.size() && masters.size() < MAX_MASTERS;) {
 				std::uint16_t size = 0;
-				std::memcpy(&size, data.data() + pos + 4, sizeof(size));
-				if (pos + 6 + size > data.size())
+				std::memcpy(&size, data.data() + pos + SIGNATURE_SIZE, sizeof(size));
+				if (pos + SUBRECORD_HEADER_SIZE + size > data.size())
 					break;
-				if (std::memcmp(data.data() + pos, "MAST", 4) == 0)
-					masters.emplace_back(data.c_str() + pos + 6, strnlen(data.c_str() + pos + 6, size));
-				pos += 6 + size;
+				if (std::memcmp(data.data() + pos, "MAST", SIGNATURE_SIZE) == 0)
+					masters.emplace_back(data.c_str() + pos + SUBRECORD_HEADER_SIZE, strnlen(data.c_str() + pos + SUBRECORD_HEADER_SIZE, size));
+				pos += SUBRECORD_HEADER_SIZE + size;
 			}
 			return masters;
 		}
 
-		PluginMap build_map()
+		PluginMap build_map(bool& a_enabledInfoAvailable)
 		{
 			PluginMap map;
-			const auto enabled = read_enabled_plugins();
+			const auto enabled = read_enabled_plugins(a_enabledInfoAvailable);
 
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			if (!datahandler)
@@ -190,7 +201,8 @@ namespace Crash::MissingMasters
 		if (datahandler->GetLoadedModCount() != 0 || datahandler->GetLoadedLightModCount() != 0)
 			return lines;
 
-		const auto map = build_map();
+		bool enabledInfoAvailable = false;
+		const auto map = build_map(enabledInfoAvailable);
 		if (map.empty())
 			return lines;
 
@@ -200,15 +212,14 @@ namespace Crash::MissingMasters
 		const auto hasAbsentMaster = [&](const Plugin& a_plugin) {
 			return std::ranges::any_of(a_plugin.masters, [&](const auto& m) { return !map.contains(lower(m)); });
 		};
-		const auto anyEnabled = std::ranges::any_of(map, [](const auto& kv) { return kv.second.enabled; });
 
 		Walker walker{ map };
 		std::vector<std::string> skipped;
 		for (const auto& [key, plugin] : map) {
 			// Without a readable Plugins.txt we can't tell enabled from not, so walk everything.
-			if (anyEnabled && !plugin.enabled)
+			if (enabledInfoAvailable && !plugin.enabled)
 				continue;
-			if (anyEnabled && hasAbsentMaster(plugin))
+			if (enabledInfoAvailable && hasAbsentMaster(plugin))
 				continue;
 			std::vector<std::string> path;
 			walker.visit(key, path);
@@ -217,7 +228,7 @@ namespace Crash::MissingMasters
 			return lines;
 
 		for (const auto& [key, plugin] : map) {
-			if (anyEnabled && plugin.enabled && hasAbsentMaster(plugin) && !walker.done.contains(key))
+			if (enabledInfoAvailable && plugin.enabled && hasAbsentMaster(plugin) && !walker.done.contains(key))
 				skipped.push_back(plugin.name);
 		}
 		std::ranges::sort(skipped);
