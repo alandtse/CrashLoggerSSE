@@ -5,6 +5,7 @@
 #include "Crash/CppException.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
+#include "Crash/MissingMasters.h"
 #include "Crash/ModelDemandTracker.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
@@ -1019,6 +1020,13 @@ namespace Crash
 			}
 		}
 
+		void print_missing_masters(spdlog::logger& a_log)
+		{
+			for (const auto& line : MissingMasters::Diagnose()) {
+				a_log.critical("{}"sv, line);
+			}
+		}
+
 		void print_relevant_objects_section(spdlog::logger& a_log, const RelevantObjectsCollection& collection)
 		{
 			a_log.critical("POSSIBLE RELEVANT OBJECTS:"sv);
@@ -1710,6 +1718,7 @@ next_label:;
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
+				print([&]() { print_missing_masters(*log); }, "print_missing_masters");
 
 				// Ensure all log data is written to disk before we try to open the file
 				log->flush();

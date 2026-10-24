@@ -6,7 +6,7 @@ archive for CrashLogger (https://www.nexusmods.com/skyrimspecialedition/mods/598
 CrashLogger resolves vanilla SkyrimSE.exe / SkyrimVR.exe call-stack frames by name
 using these PDBs. DIA (PdbHandler.cpp -> loadDataForExe(filename, sPluginPath)) finds
 the PDB in Data/SKSE/Plugins/ and validates it against the binary by GUID/age, so the
-in-archive file is always named after the runtime's exe (SE/AE/SE-1.7.99 all ship as
+in-archive file is always named after the runtime's exe (SE/AE 1.6/AE 1.7 all ship as
 SkyrimSE.pdb; only one Skyrim version is installed at a time, GUID picks the right one).
 
 Rather than shipping 4 separate archives and making the player pick the right one by
@@ -93,11 +93,11 @@ def sha256_of(path):
 # is behind the plain SkyrimSE.exe import before packaging.
 RUNTIMES = {
     "ae17": {
-        "src_pdb": r"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\SkyrimSE.1.7.99.pdb",
+        "src_pdb": r"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\SkyrimSE.1.7.104.pdb",
         "consumer_name": "SkyrimSE.pdb",
-        "display_name": "SkyrimSE 1.7.99.0",
-        "game_version": "1.7.99",
-        "program_name": "/SkyrimSE.1.7.99.exe",
+        "display_name": "SkyrimSE 1.7.104.0",
+        "game_version": "1.7.104",
+        "program_name": "/SkyrimSE.1.7.104.exe",
     },
     "ae": {
         # AE imports from SkyrimSE.1170.exe -> PdbGen writes SkyrimSE.1170.pdb in the game root.
@@ -136,12 +136,11 @@ MOD_DESCRIPTION = (
     "pre-selects it automatically where it can detect your game version."
 )
 NEXUS_MOD_ID = "59818"  # CrashLogger's mod page
+NEXUS_UNIQUE_MOD_ID = "7318624332202"  # v3 mod id, used for changelogs
 MOD_WEBSITE = f"https://www.nexusmods.com/skyrimspecialedition/mods/{NEXUS_MOD_ID}"
 
-# Matches the "Skyrim PDBs" file entry (file_id 794129) created manually on the mod page --
-# keep these in sync with whatever's set there so automated uploads look like a continuation
-# of that entry, not a different file.
-NEXUS_FILE_ID = "794129"
+# The "Skyrim PDBs" entry on the mod page; uploads add versions to it.
+NEXUS_FILE_ID = "7852668"  # v3 file group id (Files tab -> Advanced), not the v1 file id
 NEXUS_FILE_DISPLAY_NAME = "Skyrim PDBs"
 NEXUS_FILE_DESCRIPTION = (
     "This is a reverse engineered PDB to help identify game addresses. This is a fomod all-in-one."
@@ -346,7 +345,7 @@ def parse_args():
                         f"{NEXUS_FILE_ID}); must already exist -- create it once via the website")
     p.add_argument("--nexus-api-key", default=os.environ.get("NEXUS_API_KEY"),
                    help="Nexus API key (default: $NEXUS_API_KEY)")
-    p.add_argument("--nexus-mod-id", default=NEXUS_MOD_ID, help="Nexus mod_id, for --changelog")
+    p.add_argument("--nexus-mod-id", default=NEXUS_UNIQUE_MOD_ID, help="Nexus v3 unique mod id, for --changelog")
     p.add_argument("--nexus-category", default="optional", help="Nexus file_category for the upload")
     p.add_argument("--nexus-display-name", default=NEXUS_FILE_DISPLAY_NAME,
                    help="Nexus-facing file display name")
