@@ -42,6 +42,8 @@ set(sources
         src/Crash/PDB/PdbHandler.h
         src/Crash/ProblematicModules.cpp
         src/Crash/ProblematicModules.h
+        src/Crash/MissingMasters.cpp
+        src/Crash/MissingMasters.h
         src/Crash/Analysis.cpp
         src/Crash/Analysis.h
         src/Crash/CppException.cpp
