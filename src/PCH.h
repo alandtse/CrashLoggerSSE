@@ -16,6 +16,7 @@
 #include <infoware/cpu.hpp>
 #include <infoware/gpu.hpp>
 #include <infoware/system.hpp>
+#include <xbyak/xbyak.h>
 
 #undef cdecl  // Workaround for Clang 14 CMake configure error.
 

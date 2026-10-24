@@ -1,4 +1,5 @@
 #include "Crash/CrashHandler.h"
+#include "Crash/ModelDemandTracker.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "Crash/ProblematicModules.h"
@@ -232,6 +233,8 @@ SKSEPluginLoad(const LoadInterface* skse)
 	log::info("NOTE: This is not a crashlog. Crashlogs have the name crash-[TIMESTAMP].log");
 	log::info("{} {} {} {} is loading...", plugin->GetName(), version, __DATE__, __TIME__);
 	Init(skse);
+	InitializeHooking();
+	Crash::ModelDemandTracker::Install();
 	Crash::Install(SetupCrashLogPath());
 	InitializeMessaging();
 	//InitializeSerialization();
