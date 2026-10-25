@@ -3,6 +3,7 @@
 #include "Crash/Analysis.h"
 #include "Crash/CommonHeader.h"
 #include "Crash/CppException.h"
+#include "Crash/GameState.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/MissingMasters.h"
@@ -1021,6 +1022,14 @@ namespace Crash
 			}
 		}
 
+		void print_game_state(spdlog::logger& a_log)
+		{
+			a_log.critical("GAME STATE:"sv);
+			for (const auto& line : GameState::Describe()) {
+				a_log.critical("	{}"sv, line);
+			}
+		}
+
 		void print_missing_masters(spdlog::logger& a_log)
 		{
 			const auto lines = MissingMasters::Diagnose();
@@ -1066,17 +1075,21 @@ namespace Crash
 			}
 		}
 
-		void print_recent_model_demands_section(spdlog::logger& a_log)
+		void print_recent_model_demands_section(spdlog::logger& a_log, std::int64_t a_faultTicks)
 		{
 			try {
-				const auto paths = Crash::ModelDemandTracker::get_recent_paths_newest_first();
-				if (paths.empty())
+				const auto report = Crash::ModelDemandTracker::get_report(a_faultTicks);
+				if (report.requests.empty())
 					return;
 
 				a_log.critical(""sv);
-				a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
-				for (const auto& path : paths) {
-					a_log.critical("\t{}"sv, path);
+				if (report.inFlight) {
+					a_log.critical("CRASHED WHILE LOADING A MODEL (this thread, newest first):"sv);
+				} else {
+					a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
+				}
+				for (const auto& request : report.requests) {
+					a_log.critical("\t{:>9.3f} ms ago  {}{}"sv, request.ageMs, request.path, request.active ? "  (in progress)"sv : ""sv);
 				}
 			} catch (...) {
 				// Diagnostic-only section; never let a failure here affect the rest of the log.
@@ -1525,6 +1538,8 @@ next_label:;
 				::_resetstkoflw();
 			}
 
+			const auto faultTicks = Crash::ModelDemandTracker::now_ticks();
+
 			// Install the SEH-to-C++ exception translator
 			_set_se_translator(seh_translator);
 
@@ -1654,7 +1669,7 @@ next_label:;
 
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
-				print([&]() { print_recent_model_demands_section(*log); }, "print_recent_model_demands", false);
+				print([&]() { print_recent_model_demands_section(*log, faultTicks); }, "print_recent_model_demands", false);
 				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths", false);
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
@@ -1748,6 +1763,7 @@ next_label:;
 				}
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
+				print([&]() { print_game_state(*log); }, "print_game_state");
 				print([&]() { print_plugins(*log); }, "print_plugins");
 				print([&]() { print_missing_masters(*log); }, "print_missing_masters", false);
 
