@@ -4,7 +4,7 @@ namespace Crash::GameState
 {
 	namespace
 	{
-		constexpr std::size_t MAX_MENUS = 64;
+		constexpr std::size_t MAX_MENUS = 256;
 
 		std::string describe_main_loop()
 		{
@@ -25,12 +25,12 @@ namespace Crash::GameState
 				return "Open menus: UI not created"s;
 
 			std::string names;
-			std::size_t count = 0;
+			std::size_t inspected = 0;
 			for (const auto& [name, entry] : ui->menuMap) {
-				if (!entry.menu)
-					continue;
-				if (++count > MAX_MENUS)
+				if (++inspected > MAX_MENUS)
 					break;
+				if (!entry.menu || !entry.menu->OnStack())
+					continue;
 				names += names.empty() ? ""sv : ", "sv;
 				names += name.c_str();
 			}
