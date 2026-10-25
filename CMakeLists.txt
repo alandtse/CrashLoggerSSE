@@ -44,6 +44,8 @@ set(sources
         src/Crash/ProblematicModules.h
         src/Crash/ModelDemandTracker.cpp
         src/Crash/ModelDemandTracker.h
+        src/Crash/GameState.cpp
+        src/Crash/GameState.h
         src/Crash/MissingMasters.cpp
         src/Crash/MissingMasters.h
         src/Crash/Analysis.cpp

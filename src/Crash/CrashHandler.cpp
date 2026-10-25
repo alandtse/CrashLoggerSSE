@@ -3,6 +3,7 @@
 #include "Crash/Analysis.h"
 #include "Crash/CommonHeader.h"
 #include "Crash/CppException.h"
+#include "Crash/GameState.h"
 #include "Crash/Introspection/Introspection.h"
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/MissingMasters.h"
@@ -1020,6 +1021,14 @@ namespace Crash
 			}
 		}
 
+		void print_game_state(spdlog::logger& a_log)
+		{
+			a_log.critical("GAME STATE:"sv);
+			for (const auto& line : GameState::Describe()) {
+				a_log.critical("	{}"sv, line);
+			}
+		}
+
 		void print_missing_masters(spdlog::logger& a_log)
 		{
 			for (const auto& line : MissingMasters::Diagnose()) {
@@ -1723,6 +1732,7 @@ next_label:;
 				}
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
+				print([&]() { print_game_state(*log); }, "print_game_state");
 				print([&]() { print_plugins(*log); }, "print_plugins");
 				print([&]() { print_missing_masters(*log); }, "print_missing_masters");
 
