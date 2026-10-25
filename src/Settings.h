@@ -30,7 +30,7 @@ public:
 		int maxHeapsToCheck{ 1 };
 		int maxHeapIterationsPerHeap{ 1000 };
 
-		// Records recent BSModelDB::Demand() model paths per thread for the crash log.
+		// Installs the model-load hooks (BSModelDB::Demand, BSResource::ID::ID) that name the model a thread was loading.
 		bool enableModelPathTracking{ true };
 
 		// Thread context heuristics (label -> list of keywords)
