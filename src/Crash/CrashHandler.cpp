@@ -1023,7 +1023,12 @@ namespace Crash
 
 		void print_missing_masters(spdlog::logger& a_log)
 		{
-			for (const auto& line : MissingMasters::Diagnose()) {
+			const auto lines = MissingMasters::Diagnose();
+			if (lines.empty())
+				return;
+
+			a_log.critical(""sv);
+			for (const auto& line : lines) {
 				a_log.critical("{}"sv, line);
 			}
 		}
@@ -1068,6 +1073,7 @@ namespace Crash
 				if (paths.empty())
 					return;
 
+				a_log.critical(""sv);
 				a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
 				for (const auto& path : paths) {
 					a_log.critical("\t{}"sv, path);
@@ -1089,6 +1095,7 @@ namespace Crash
 				if (hits.empty())
 					return;
 
+				a_log.critical(""sv);
 				a_log.critical("MODEL PATHS FOR RESOURCE IDS ON THIS THREAD'S STACK (innermost first):"sv);
 				for (const auto& hit : hits) {
 					a_log.critical("\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
@@ -1564,8 +1571,9 @@ next_label:;
 				// Collection to gather relevant objects during analysis
 				RelevantObjectsCollection relevantObjects;
 
-				const auto print = [&](auto&& a_functor, std::string a_name = "") {
-					log->critical(""sv);
+				const auto print = [&](auto&& a_functor, std::string a_name = "", bool a_separate = true) {
+					if (a_separate)
+						log->critical(""sv);
 					try {
 						// Add timeout protection to prevent hanging on bad operations
 						auto start = std::chrono::steady_clock::now();
@@ -1646,8 +1654,8 @@ next_label:;
 
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
-				print([&]() { print_recent_model_demands_section(*log); }, "print_recent_model_demands");
-				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths");
+				print([&]() { print_recent_model_demands_section(*log); }, "print_recent_model_demands", false);
+				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths", false);
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
@@ -1741,7 +1749,7 @@ next_label:;
 				print([&]() { print_modules(*log, cmodules); }, "print_modules");
 				print([&]() { print_xse_plugins(*log, cmodules); }, "print_xse_plugins");
 				print([&]() { print_plugins(*log); }, "print_plugins");
-				print([&]() { print_missing_masters(*log); }, "print_missing_masters");
+				print([&]() { print_missing_masters(*log); }, "print_missing_masters", false);
 
 				// Ensure all log data is written to disk before we try to open the file
 				log->flush();
