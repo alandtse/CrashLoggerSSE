@@ -1,5 +1,6 @@
 #include "Crash/CrashHandler.h"
 #include "Crash/ModelDemandTracker.h"
+#include "Crash/ModelPathLookup.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "Crash/ProblematicModules.h"
@@ -152,7 +153,7 @@ namespace
 	{
 		log::trace("Initializing trampoline...");
 		auto& trampoline = GetTrampoline();
-		trampoline.create(64);
+		trampoline.create(256);
 		log::trace("Trampoline initialized.");
 	}
 
@@ -235,6 +236,7 @@ SKSEPluginLoad(const LoadInterface* skse)
 	Init(skse);
 	InitializeHooking();
 	Crash::ModelDemandTracker::Install();
+	Crash::ModelPathLookup::Install();
 	Crash::Install(SetupCrashLogPath());
 	InitializeMessaging();
 	//InitializeSerialization();

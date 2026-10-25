@@ -7,6 +7,7 @@
 #include "Crash/Introspection/RelevantObjectsSimplifier.h"
 #include "Crash/MissingMasters.h"
 #include "Crash/ModelDemandTracker.h"
+#include "Crash/ModelPathLookup.h"
 #include "Crash/Modules/ModuleHandler.h"
 #include "Crash/PDB/PdbHandler.h"
 #include "Crash/ProblematicModules.h"
@@ -1076,6 +1077,27 @@ namespace Crash
 			}
 		}
 
+		void print_model_paths_section(spdlog::logger& a_log, const ::CONTEXT& a_context)
+		{
+			try {
+				const auto stack = get_stack_info(a_context);
+				if (!stack)
+					return;
+
+				constexpr std::size_t MAX_HITS = 8;
+				const auto hits = ModelPathLookup::FindPathsOnStack(*stack, MAX_HITS);
+				if (hits.empty())
+					return;
+
+				a_log.critical("MODEL PATHS FOR RESOURCE IDS ON THIS THREAD'S STACK (innermost first):"sv);
+				for (const auto& hit : hits) {
+					a_log.critical("\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
+				}
+			} catch (...) {
+				// Diagnostic-only section; never let a failure here affect the rest of the log.
+			}
+		}
+
 		void print_sysinfo(spdlog::logger& a_log)
 		{
 			a_log.critical("SYSTEM SPECS:"sv);
@@ -1625,6 +1647,7 @@ next_label:;
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
 				print([&]() { print_recent_model_demands_section(*log); }, "print_recent_model_demands");
+				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths");
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
