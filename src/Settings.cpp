@@ -76,7 +76,7 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 	get_value(a_ini, enableHeapAnalysis, section, "Enable Heap Analysis", ";Enable heap allocation analysis for crash pointers. Default: false\n;WARNING: Can cause 10+ second delays in crash log generation. Only enable if needed.");
 	get_value(a_ini, maxHeapsToCheck, section, "Max Heaps To Check", ";Maximum number of heaps to check (process has many heaps). Default: 1\n;1 = only check process heap (fastest, limited coverage)\n;2-5 = check multiple heaps (slower, better coverage)\n;0 = check all heaps (VERY SLOW, not recommended)");
 	get_value(a_ini, maxHeapIterationsPerHeap, section, "Max Heap Iterations Per Heap", ";Maximum allocations to check per heap before giving up. Default: 1000\n;Lower = faster but may miss allocations. Higher = slower but more thorough.\n;0 = unlimited (VERY SLOW, not recommended)");
-	get_value(a_ini, enableModelPathTracking, section, "Enable Model Path Tracking", ";Track the last few model files requested via BSModelDB::Demand() on each thread\n;and show the crashing thread's recent requests in the crash log. Default: true");
+	get_value(a_ini, enableModelPathTracking, section, "Enable Model Path Tracking", ";Install the hooks that let the crash log name the model a thread was loading:\n;BSModelDB::Demand() (recent requests per thread) and BSResource::ID::ID() (the path behind\n;each resource id, so queued loads can be named). Disable to leave those functions unpatched.\n;Default: true");
 
 	// Thread context heuristics
 	// Parse all keys starting with "Thread Context "
