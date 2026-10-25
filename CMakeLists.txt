@@ -320,18 +320,19 @@ set_property(TARGET ${PROJECT_NAME}
 # Automatic deployment to Mod Organizer 2 mod directory.
 foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
         message("Adding deployment target ${DEPLOY_TARGET}.")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
+        set(DEPLOY_FILES $<TARGET_FILE:${PROJECT_NAME}>)
 
         if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
+                list(APPEND DEPLOY_FILES $<TARGET_PDB_FILE:${PROJECT_NAME}>)
         endif()
 
         if(DIASDK_LIBRARIES)
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
-                endif()
+                list(APPEND DEPLOY_FILES ${DIA_DLL})
+        endif()
+
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} "-DFILES=$<JOIN:${DEPLOY_FILES},|>" "-DDEST=${DEPLOY_TARGET}/SKSE/Plugins/" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_plugin.cmake"
+                VERBATIM)
 endforeach()
 
 set(ZIP_DIR "${CMAKE_CURRENT_BINARY_DIR}/zip")
