@@ -14,9 +14,9 @@ namespace Crash::ModelDemandTracker
 			// 0 == unclaimed; once claimed, only the owning thread writes the other fields.
 			std::atomic<std::uint32_t> ownerThreadId{ 0 };
 			std::uint32_t head{ 0 };
-			std::uint32_t inFlightDepth{ 0 };
 			char paths[kCapacity][kPathSize]{};
 			std::int64_t ticks[kCapacity]{};
+			bool active[kCapacity]{};
 		};
 
 		// Static storage, not thread_local: TLS in a LoadLibrary'd DLL is unsafe on raw worker threads.
@@ -42,15 +42,15 @@ namespace Crash::ModelDemandTracker
 		// Unwinds even when the original throws, so a handled exception leaves no false in-flight marker.
 		struct InFlightGuard
 		{
-			explicit InFlightGuard(std::uint32_t& a_depth) :
-				depth(a_depth)
+			explicit InFlightGuard(bool& a_active) :
+				active(a_active)
 			{
-				++depth;
+				active = true;
 			}
 
-			~InFlightGuard() { --depth; }
+			~InFlightGuard() { active = false; }
 
-			std::uint32_t& depth;
+			bool& active;
 		};
 
 		using Demand_t = RE::BSResource::ErrorCode (*)(const char*, RE::NiPointer<RE::NiNode>&, const RE::BSModelDB::DBTraits::ArgsType&);
@@ -75,7 +75,7 @@ namespace Crash::ModelDemandTracker
 					slot->ticks[index] = now.QuadPart;
 					++slot->head;
 
-					const InFlightGuard guard{ slot->inFlightDepth };
+					const InFlightGuard guard{ slot->active[index] };
 					return g_original(a_modelPath, a_modelOut, a_args);
 				}
 			}
@@ -128,19 +128,16 @@ namespace Crash::ModelDemandTracker
 	std::vector<Request> select_relevant(
 		std::span<const Entry> a_newestFirst,
 		std::int64_t a_nowTicks,
-		std::int64_t a_ticksPerSecond,
-		std::size_t a_activeCount)
+		std::int64_t a_ticksPerSecond)
 	{
 		const auto ticksPerSecond = std::max<std::int64_t>(a_ticksPerSecond, 1);
 
 		std::vector<Request> out;
 		out.reserve(a_newestFirst.size());
-		for (std::size_t i = 0; i < a_newestFirst.size(); ++i) {
-			const auto& entry = a_newestFirst[i];
+		for (const auto& entry : a_newestFirst) {
 			const auto ageMs = std::max(0.0, static_cast<double>(a_nowTicks - entry.ticks) * 1000.0 / static_cast<double>(ticksPerSecond));
-			const bool active = i < a_activeCount;
-			if (active || ageMs <= kRecentWindowMs)
-				out.push_back({ entry.path, ageMs, active });
+			if (entry.active || ageMs <= kRecentWindowMs)
+				out.push_back({ entry.path, ageMs, entry.active });
 		}
 		return out;
 	}
@@ -167,18 +164,17 @@ namespace Crash::ModelDemandTracker
 		if (!slot)
 			return report;
 
-		report.inFlight = slot->inFlightDepth > 0;
-
 		try {
 			const auto count = std::min<std::uint32_t>(slot->head, static_cast<std::uint32_t>(Slot::kCapacity));
 			std::vector<Entry> entries;
 			entries.reserve(count);
 			for (std::uint32_t i = 0; i < count; ++i) {
 				const auto idx = (slot->head - 1 - i) % Slot::kCapacity;
-				entries.push_back({ slot->paths[idx], slot->ticks[idx] });
+				entries.push_back({ slot->paths[idx], slot->ticks[idx], slot->active[idx] });
+				report.inFlight = report.inFlight || slot->active[idx];
 			}
 
-			report.requests = select_relevant(entries, a_faultTicks, g_ticksPerSecond, std::min<std::size_t>(slot->inFlightDepth, count));
+			report.requests = select_relevant(entries, a_faultTicks, g_ticksPerSecond);
 		} catch (...) {
 			// Allocation failure must not propagate out of the crash handler.
 		}

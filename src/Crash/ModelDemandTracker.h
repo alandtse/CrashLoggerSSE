@@ -29,17 +29,17 @@ namespace Crash::ModelDemandTracker
 	{
 		std::string path;
 		std::int64_t ticks;
+		bool active;
 	};
 
 	// Conservative starting value pending calibration from real crash logs.
 	inline constexpr double kRecentWindowMs = 5.0;
 
-	// Keeps the newest a_activeCount entries plus any other entry within kRecentWindowMs.
+	// Keeps every active entry plus any other entry within kRecentWindowMs.
 	[[nodiscard]] std::vector<Request> select_relevant(
 		std::span<const Entry> a_newestFirst,
 		std::int64_t a_nowTicks,
-		std::int64_t a_ticksPerSecond,
-		std::size_t a_activeCount);
+		std::int64_t a_ticksPerSecond);
 
 	// High-resolution timestamp; capture it as early as possible in the crash handler.
 	[[nodiscard]] std::int64_t now_ticks();
