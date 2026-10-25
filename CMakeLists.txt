@@ -42,6 +42,8 @@ set(sources
         src/Crash/PDB/PdbHandler.h
         src/Crash/ProblematicModules.cpp
         src/Crash/ProblematicModules.h
+        src/Crash/ModelPathLookup.cpp
+        src/Crash/ModelPathLookup.h
         src/Crash/ModelDemandTracker.cpp
         src/Crash/ModelDemandTracker.h
         src/Crash/GameState.cpp
