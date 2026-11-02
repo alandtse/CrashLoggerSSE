@@ -238,6 +238,121 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class TESPackage
+	{
+	public:
+		using value_type = RE::TESPackage;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto package = static_cast<const value_type*>(a_ptr);
+			if (!package)
+				return;
+
+			TESForm<RE::TESPackage>::filter(a_results, a_ptr, tab_depth);
+
+			try {
+				const auto packType = package->packData.packType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Package Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(packType), std::to_underlying(packType)));
+			} catch (...) {}
+
+			try {
+				const auto procedureType = package->procedureType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Procedure Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(procedureType), std::to_underlying(procedureType)));
+			} catch (...) {}
+
+			try {
+				if (const auto quest = package->ownerQuest) {
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Owner Quest"sv, "", tab_depth),
+						"---");
+					TESForm<RE::TESQuest>::filter(a_results, quest, tab_depth + 1);
+				}
+			} catch (...) {}
+
+			try {
+				const auto packType = package->packData.packType.get();
+				if (packType == RE::PACKAGE_TYPE::kPackage || packType == RE::PACKAGE_TYPE::kPackageTemplate)
+					filter_data_inputs(a_results, static_cast<const RE::TESCustomPackageData*>(package->data), tab_depth);
+			} catch (...) {}
+		}
+
+	private:
+		static constexpr std::size_t MAX_DATA_INPUTS = 32;
+
+		[[nodiscard]] static std::string rtti_class_name(const void* a_object)
+		{
+			const auto vtable = *reinterpret_cast<const std::uintptr_t* const*>(a_object);
+			const auto& module = REL::Module::get();
+			const auto inSegment = [&](const void* a_ptr, REL::Segment::Name a_segment) {
+				const auto segment = module.segment(a_segment);
+				const auto address = reinterpret_cast<std::uintptr_t>(a_ptr);
+				return address >= segment.address() && address < segment.address() + segment.size();
+			};
+			if (!inSegment(vtable, REL::Segment::rdata))
+				return {};
+
+			const auto col = reinterpret_cast<const RE::RTTI::CompleteObjectLocator*>(vtable[-1]);
+			if (!inSegment(col, REL::Segment::rdata))
+				return {};
+
+			const auto typeDesc = reinterpret_cast<const RE::RTTI::TypeDescriptor*>(module.base() + col->typeDescriptor.offset());
+			if (!inSegment(typeDesc, REL::Segment::data))
+				return {};
+
+			std::string_view name = typeDesc->mangled_name();
+			constexpr std::string_view prefix = ".?AV";
+			constexpr std::string_view suffix = "@@";
+			if (name.starts_with(prefix))
+				name.remove_prefix(prefix.size());
+			if (name.ends_with(suffix))
+				name.remove_suffix(suffix.size());
+			return std::string{ name };
+		}
+
+		static void filter_data_inputs(
+			filter_results& a_results,
+			const RE::TESCustomPackageData* a_data, int tab_depth)
+		{
+			if (!a_data)
+				return;
+
+			const auto& list = a_data->data;
+			if (!list.data || !list.uids)
+				return;
+
+			const std::size_t count = list.dataSize;
+			for (std::size_t i = 0; i < std::min(count, MAX_DATA_INPUTS); ++i) {
+				try {
+					const auto entry = list.data[i];
+					if (!entry)
+						continue;
+
+					std::string value = rtti_class_name(entry);
+					try {
+						const auto& typeName = entry->GetTypeName();
+						if (typeName.c_str() && typeName.c_str()[0])
+							value = fmt::format("{} (type {})"sv, value, typeName.c_str());
+					} catch (...) {}
+
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Data Input {}"sv, "", tab_depth, list.uids[i]),
+						SSE::quoted(value));
+				} catch (...) {}
+			}
+			if (count > MAX_DATA_INPUTS)
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Data Inputs"sv, "", tab_depth),
+					fmt::format("{} total, first {} shown"sv, count, MAX_DATA_INPUTS));
+		}
+	};
+
 	class TESFullName
 	{
 	public:
@@ -2930,6 +3045,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
 				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
+				std::make_pair(".?AVTESPackage@@"sv, SSE::TESPackage::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
 				std::make_pair(".?AVTESQuest@@"sv, SSE::TESQuest::filter),
 				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
