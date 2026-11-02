@@ -268,8 +268,12 @@ namespace Crash::Introspection::SSE
 			} catch (...) {}
 
 			try {
-				if (const auto quest = package->ownerQuest)
+				if (const auto quest = package->ownerQuest) {
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Owner Quest"sv, "", tab_depth),
+						"---");
 					TESForm<RE::TESQuest>::filter(a_results, quest, tab_depth + 1);
+				}
 			} catch (...) {}
 
 			try {
@@ -286,19 +290,22 @@ namespace Crash::Introspection::SSE
 		{
 			const auto vtable = *reinterpret_cast<const std::uintptr_t* const*>(a_object);
 			const auto& module = REL::Module::get();
-			const auto rdata = module.segment(REL::Segment::rdata);
-			const auto inRdata = [&](const void* a_ptr) {
+			const auto inSegment = [&](const void* a_ptr, REL::Segment::Name a_segment) {
+				const auto segment = module.segment(a_segment);
 				const auto address = reinterpret_cast<std::uintptr_t>(a_ptr);
-				return address >= rdata.address() && address < rdata.address() + rdata.size();
+				return address >= segment.address() && address < segment.address() + segment.size();
 			};
-			if (!inRdata(vtable))
+			if (!inSegment(vtable, REL::Segment::rdata))
 				return {};
 
 			const auto col = reinterpret_cast<const RE::RTTI::CompleteObjectLocator*>(vtable[-1]);
-			if (!inRdata(col))
+			if (!inSegment(col, REL::Segment::rdata))
 				return {};
 
 			const auto typeDesc = reinterpret_cast<const RE::RTTI::TypeDescriptor*>(module.base() + col->typeDescriptor.offset());
+			if (!inSegment(typeDesc, REL::Segment::data))
+				return {};
+
 			std::string_view name = typeDesc->mangled_name();
 			constexpr std::string_view prefix = ".?AV";
 			constexpr std::string_view suffix = "@@";
