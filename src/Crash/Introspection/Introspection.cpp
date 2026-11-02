@@ -271,6 +271,78 @@ namespace Crash::Introspection::SSE
 				if (const auto quest = package->ownerQuest)
 					TESForm<RE::TESQuest>::filter(a_results, quest, tab_depth + 1);
 			} catch (...) {}
+
+			try {
+				const auto packType = package->packData.packType.get();
+				if (packType == RE::PACKAGE_TYPE::kPackage || packType == RE::PACKAGE_TYPE::kPackageTemplate)
+					filter_data_inputs(a_results, static_cast<const RE::TESCustomPackageData*>(package->data), tab_depth);
+			} catch (...) {}
+		}
+
+	private:
+		static constexpr std::size_t MAX_DATA_INPUTS = 32;
+
+		[[nodiscard]] static std::string rtti_class_name(const void* a_object)
+		{
+			const auto vtable = *reinterpret_cast<const std::uintptr_t* const*>(a_object);
+			const auto& module = REL::Module::get();
+			const auto rdata = module.segment(REL::Segment::rdata);
+			const auto inRdata = [&](const void* a_ptr) {
+				const auto address = reinterpret_cast<std::uintptr_t>(a_ptr);
+				return address >= rdata.address() && address < rdata.address() + rdata.size();
+			};
+			if (!inRdata(vtable))
+				return {};
+
+			const auto col = reinterpret_cast<const RE::RTTI::CompleteObjectLocator*>(vtable[-1]);
+			if (!inRdata(col))
+				return {};
+
+			const auto typeDesc = reinterpret_cast<const RE::RTTI::TypeDescriptor*>(module.base() + col->typeDescriptor.offset());
+			std::string_view name = typeDesc->mangled_name();
+			constexpr std::string_view prefix = ".?AV";
+			constexpr std::string_view suffix = "@@";
+			if (name.starts_with(prefix))
+				name.remove_prefix(prefix.size());
+			if (name.ends_with(suffix))
+				name.remove_suffix(suffix.size());
+			return std::string{ name };
+		}
+
+		static void filter_data_inputs(
+			filter_results& a_results,
+			const RE::TESCustomPackageData* a_data, int tab_depth)
+		{
+			if (!a_data)
+				return;
+
+			const auto& list = a_data->data;
+			if (!list.data || !list.uids)
+				return;
+
+			const std::size_t count = list.dataSize;
+			for (std::size_t i = 0; i < std::min(count, MAX_DATA_INPUTS); ++i) {
+				try {
+					const auto entry = list.data[i];
+					if (!entry)
+						continue;
+
+					std::string value = rtti_class_name(entry);
+					try {
+						const auto& typeName = entry->GetTypeName();
+						if (typeName.c_str() && typeName.c_str()[0])
+							value = fmt::format("{} (type {})"sv, value, typeName.c_str());
+					} catch (...) {}
+
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Data Input {}"sv, "", tab_depth, list.uids[i]),
+						SSE::quoted(value));
+				} catch (...) {}
+			}
+			if (count > MAX_DATA_INPUTS)
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Data Inputs"sv, "", tab_depth),
+					fmt::format("{} total, first {} shown"sv, count, MAX_DATA_INPUTS));
 		}
 	};
 
