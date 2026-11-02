@@ -238,6 +238,42 @@ namespace Crash::Introspection::SSE
 		}
 	};
 
+	class TESPackage
+	{
+	public:
+		using value_type = RE::TESPackage;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto package = static_cast<const value_type*>(a_ptr);
+			if (!package)
+				return;
+
+			TESForm<RE::TESPackage>::filter(a_results, a_ptr, tab_depth);
+
+			try {
+				const auto packType = package->packData.packType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Package Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(packType), std::to_underlying(packType)));
+			} catch (...) {}
+
+			try {
+				const auto procedureType = package->procedureType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Procedure Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(procedureType), std::to_underlying(procedureType)));
+			} catch (...) {}
+
+			try {
+				if (const auto quest = package->ownerQuest)
+					TESForm<RE::TESQuest>::filter(a_results, quest, tab_depth + 1);
+			} catch (...) {}
+		}
+	};
+
 	class TESFullName
 	{
 	public:
@@ -2930,6 +2966,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
 				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
+				std::make_pair(".?AVTESPackage@@"sv, SSE::TESPackage::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
 				std::make_pair(".?AVTESQuest@@"sv, SSE::TESQuest::filter),
 				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
