@@ -2012,6 +2012,63 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class CellLoaderTask
+	{
+	public:
+		using value_type = RE::CellLoaderTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Interior"sv, "", tab_depth),
+					fmt::format("{}", data.interior));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}State"sv, "", tab_depth),
+					fmt::format("{}", data.state));
+				if (data.world)
+					TESForm<RE::TESForm>::filter(a_results, data.world, tab_depth + 1);
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
+	class AddCellGrassTask
+	{
+	public:
+		using value_type = RE::AddCellGrassTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cancelled"sv, "", tab_depth),
+					fmt::format("{}", data.cancel));
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
 	class ExtraTextDisplayData
 	{
 	public:
@@ -2896,6 +2953,7 @@ namespace Crash::Introspection
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
+				std::make_pair(".?AVAddCellGrassTask@@"sv, SSE::AddCellGrassTask::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
 				std::make_pair(".?AVBGSLocation@@"sv, SSE::BGSLocation::filter),
 				std::make_pair(".?AVBSCullingProcess@@"sv, SSE::BSCullingProcess::filter),
@@ -2903,6 +2961,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVCellLoaderTask@@"sv, SSE::CellLoaderTask::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCombatNavmeshSearch@@"sv, SSE::CombatNavmeshSearch::filter),
