@@ -86,7 +86,7 @@ namespace Crash::Introspection::SSE
 				std::string handleString;
 				if (a_skyrimVm) {
 					RE::BSFixedString handle;
-					a_skyrimVm->GetHandlePolicy().ConvertHandleToString(obj->GetHandle(), handle);
+					const_cast<RE::SkyrimVM*>(a_skyrimVm)->GetVMRuntimeData().handlePolicy.ConvertHandleToString(obj->GetHandle(), handle);
 					if (handle.c_str() && handle[0]) {
 						handleString = handle.c_str();
 					}
@@ -1624,6 +1624,15 @@ namespace Crash::Introspection::SSE
 				return result;
 			}
 
+			// BSTCommonLLMessageQueue::head is private and Range() takes the queue lock,
+			// which the crashed thread may hold, so read the head at 0x18 without locking.
+			template <class Queue>
+			[[nodiscard]] auto queue_head(const Queue& a_queue) noexcept
+			{
+				using node_t = RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>;
+				return *reinterpret_cast<node_t* const*>(reinterpret_cast<const std::byte*>(&a_queue) + 0x18);
+			}
+
 			// Shared helper to traverse a FunctionMessage queue and format summaries
 			[[nodiscard]] std::string format_function_message_queue(
 				RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>* head,
@@ -1709,7 +1718,7 @@ namespace Crash::Introspection::SSE
 
 					try {
 						constexpr std::size_t MAX_MESSAGES = 3;
-						auto messageSummary = format_function_message_queue(object->funcMsgQueue.head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(object->funcMsgQueue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
 								messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
@@ -1759,11 +1768,11 @@ namespace Crash::Introspection::SSE
 						try {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Head"sv, "", tab_depth),
-								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue->head)));
+								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue_head(*queue))));
 						} catch (...) {}
 
 						constexpr std::size_t MAX_MESSAGES = 5;
-						auto messageSummary = format_function_message_queue(queue->head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(*queue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
@@ -2055,7 +2064,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetHandlePolicy();
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetVMRuntimeData().handlePolicy;
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
