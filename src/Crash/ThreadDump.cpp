@@ -25,72 +25,74 @@ namespace Crash
 	static std::atomic<bool> g_stopHotkeyThread{ false };
 	static std::jthread g_hotkeyThread;
 
+	namespace
+	{
+		// Takes the thread's registers and top of stack while it is suspended. A suspended thread may
+		// hold the heap, loader or logger lock, so nothing here allocates or takes a lock: anything
+		// that does (symbols, strings, logging) would deadlock the dump the moment it needs that lock.
+		bool CaptureThread(DWORD a_threadId, ThreadSnapshot& a_out) noexcept
+		{
+			const auto thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME | THREAD_QUERY_INFORMATION,
+				FALSE, a_threadId);
+			if (!thread) {
+				return false;
+			}
+			bool ok = false;
+			if (SuspendThread(thread) != static_cast<DWORD>(-1)) {
+				a_out.ctx.ContextFlags = CONTEXT_FULL;
+				if (GetThreadContext(thread, &a_out.ctx)) {
+					SIZE_T read = 0;
+					ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(a_out.ctx.Rsp),
+						a_out.stack, sizeof(a_out.stack), &read);
+					a_out.stackCount = read / sizeof(std::size_t);
+					ok = true;
+				}
+				ResumeThread(thread);
+			}
+			CloseHandle(thread);
+			return ok;
+		}
+	}
+
 	std::optional<ThreadData> CollectThreadData(DWORD threadId, size_t index,
 		std::span<const module_pointer> a_modules, const std::string& processName, const std::filesystem::path& pluginDir)
 	{
-		ThreadData data{ threadId, index, {}, 0 };
+		ThreadData data{ threadId, index, {}, 0, std::make_shared<ThreadSnapshot>() };
 
-		HANDLE thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME | THREAD_QUERY_INFORMATION,
-			FALSE, threadId);
-		if (!thread) {
+		if (!CaptureThread(threadId, *data.snapshot)) {
 			return std::nullopt;
 		}
 
-		// Suspend for stable capture
-		DWORD suspendCount = SuspendThread(thread);
-		if (suspendCount == static_cast<DWORD>(-1)) {
-			CloseHandle(thread);
-			return std::nullopt;
-		}
-
+		// The thread is running again; everything below is free to allocate.
+		const auto& ctx = data.snapshot->ctx;
 		try {
-			// Get thread context
-			CONTEXT ctx{};
-			ctx.ContextFlags = CONTEXT_FULL;
+			const auto rip_mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(ctx.Rip), a_modules);
+			if (rip_mod && rip_mod->in_range(reinterpret_cast<void*>(ctx.Rip))) {
+				std::string ripModName(rip_mod->name().data(), rip_mod->name().size());
+				data.callstackModules.push_back(ripModName);
+				if (ripModName == processName ||
+					(ripModName.ends_with(".dll") && std::filesystem::exists(pluginDir / ripModName))) {
+					data.priority = 2;  // RIP in game module
+				}
+			}
 
-			if (GetThreadContext(thread, &ctx)) {
-				// Collect callstack modules and determine priority
-				try {
-					// Check RIP first
-					const auto rip_mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(ctx.Rip), a_modules);
-					if (rip_mod && rip_mod->in_range(reinterpret_cast<void*>(ctx.Rip))) {
-						std::string ripModName(rip_mod->name().data(), rip_mod->name().size());
-						data.callstackModules.push_back(ripModName);
-						if (ripModName == processName ||
-							(ripModName.ends_with(".dll") && std::filesystem::exists(pluginDir / ripModName))) {
-							data.priority = 2;  // RIP in game module
+			for (std::size_t i = 0; i < data.snapshot->stackCount; ++i) {
+				const auto addr = data.snapshot->stack[i];
+				const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
+				if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
+					std::string modName(mod->name().data(), mod->name().size());
+					if (std::find(data.callstackModules.begin(), data.callstackModules.end(), modName) == data.callstackModules.end()) {
+						data.callstackModules.push_back(modName);
+						if (data.priority < 2 && (modName == processName ||
+													 (modName.ends_with(".dll") && std::filesystem::exists(pluginDir / modName)))) {
+							data.priority = data.priority == 0 ? 1 : data.priority;  // Any in stack, but not overriding RIP priority
 						}
 					}
-
-					// Walk stack from captured CONTEXT's RSP
-					const auto rsp = reinterpret_cast<const std::size_t*>(ctx.Rsp);
-					constexpr size_t MAX_STACK_SCAN = 512;  // 4KB of stack
-
-					for (size_t i = 0; i < MAX_STACK_SCAN; ++i) {
-						const auto addr = rsp[i];
-						const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
-						if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
-							std::string modName(mod->name().data(), mod->name().size());
-							if (std::find(data.callstackModules.begin(), data.callstackModules.end(), modName) == data.callstackModules.end()) {
-								data.callstackModules.push_back(modName);
-								if (data.priority < 2 && (modName == processName ||
-															 (modName.ends_with(".dll") && std::filesystem::exists(pluginDir / modName)))) {
-									data.priority = data.priority == 0 ? 1 : data.priority;  // Any in stack, but not overriding RIP priority
-								}
-							}
-						}
-					}
-				} catch (...) {
-					// Failed to walk stack, but continue
 				}
 			}
 		} catch (...) {
-			// Exception during collection
+			// Failed to walk the stack, but continue
 		}
-
-		// Resume thread
-		ResumeThread(thread);
-		CloseHandle(thread);
 
 		return data;
 	}
@@ -100,80 +102,47 @@ namespace Crash
 	{
 		a_log.critical("===== THREAD {} (ID: {}) ====="sv, data.index, data.id);
 
-		HANDLE thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME | THREAD_QUERY_INFORMATION,
-			FALSE, data.id);
-		if (!thread) {
-			a_log.critical("\tFailed to open thread (Error: {})"sv, GetLastError());
-			a_log.critical(""sv);
-			return;
-		}
-
-		// Suspend for stable capture
-		DWORD suspendCount = SuspendThread(thread);
-		if (suspendCount == static_cast<DWORD>(-1)) {
-			a_log.critical("\tFailed to suspend thread"sv);
-			CloseHandle(thread);
+		if (!data.snapshot) {
+			a_log.critical("	No thread snapshot"sv);
 			a_log.critical(""sv);
 			return;
 		}
 
 		try {
-			// Get thread context
-			CONTEXT ctx{};
-			ctx.ContextFlags = CONTEXT_FULL;
+			const auto& ctx = data.snapshot->ctx;
 
-			if (GetThreadContext(thread, &ctx)) {
-				// Print registers WITH introspection (shared DRY code)
-				// This will show what objects/locks each register points to
-				print_registers_safe(a_log, ctx, a_modules);
-				a_log.critical(""sv);
+			// Print registers WITH introspection (shared DRY code)
+			print_registers_safe(a_log, ctx, a_modules);
+			a_log.critical(""sv);
 
-				a_log.critical("\tCALLSTACK:"sv);
-				try {
-					// Collect stack frames: RIP first, then scan stack for return addresses
-					std::vector<const void*> frames;
-					frames.reserve(65);  // RIP + up to 64 stack frames
+			a_log.critical("	CALLSTACK:"sv);
+			try {
+				// RIP first, then return addresses found in the captured stack
+				std::vector<const void*> frames;
+				constexpr size_t MAX_FRAMES = 64;
+				frames.reserve(MAX_FRAMES + 1);
+				frames.push_back(reinterpret_cast<const void*>(ctx.Rip));
 
-					// Add RIP (current instruction pointer)
-					frames.push_back(reinterpret_cast<const void*>(ctx.Rip));
-
-					// Walk stack from captured CONTEXT's RSP
-					// Scan stack memory for return addresses (limit scan to 4KB / 512 qwords)
-					try {
-						const auto rsp = reinterpret_cast<const std::size_t*>(ctx.Rsp);
-						constexpr size_t MAX_FRAMES = 64;
-						constexpr size_t MAX_STACK_SCAN = 512;  // 4KB of stack
-
-						for (size_t i = 0; i < MAX_STACK_SCAN && frames.size() < MAX_FRAMES + 1; ++i) {
-							const auto addr = rsp[i];
-							const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
-							if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
-								frames.push_back(reinterpret_cast<const void*>(addr));
-							}
-						}
-					} catch (...) {
-						// Stack scan failed, continue with just RIP
+				for (std::size_t i = 0; i < data.snapshot->stackCount && frames.size() < MAX_FRAMES + 1; ++i) {
+					const auto addr = data.snapshot->stack[i];
+					const auto mod = Introspection::get_module_for_pointer(reinterpret_cast<void*>(addr), a_modules);
+					if (mod && mod->in_range(reinterpret_cast<void*>(addr))) {
+						frames.push_back(reinterpret_cast<const void*>(addr));
 					}
-
-					// Print detailed callstack with PDB symbols and assembly (shared DRY code)
-					print_callstack(a_log, frames, a_modules);
-
-				} catch (const std::exception& e) {
-					a_log.critical("\t\tCallstack error: {}"sv, e.what());
-				} catch (...) {
-					a_log.critical("\t\tStack walk may be incomplete due to access violations"sv);
 				}
-			} else {
-				a_log.critical("\tFailed to get thread context (Error: {})"sv, GetLastError());
+
+				print_callstack(a_log, frames, a_modules);
+			} catch (const std::exception& e) {
+				a_log.critical("		Callstack error: {}"sv, e.what());
+			} catch (...) {
+				a_log.critical("		Stack walk may be incomplete"sv);
 			}
 		} catch (...) {
-			a_log.critical("\tException during thread dump"sv);
+			a_log.critical("	Exception during thread dump"sv);
 		}
 
-		// Resume thread
-		ResumeThread(thread);
-		CloseHandle(thread);
 		a_log.critical(""sv);
+		a_log.flush();  // keep partial output on disk if a later thread stalls
 	}
 
 	void WriteAllThreadsDump()
