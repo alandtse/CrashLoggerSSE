@@ -318,8 +318,9 @@ set_property(TARGET ${PROJECT_NAME}
         APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${OUTPUT_SCRIPTS}")
 
 # Automatic deployment to Mod Organizer 2 mod directory.
-foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
-        message("Adding deployment target ${DEPLOY_TARGET}.")
+# The file and target lists go through generated files instead of the command line: each target
+# repeated the full file list, and a long or '|'-laden POST_BUILD line broke under cmd.exe.
+if(NOT "$ENV{SkyrimPluginTargets}" STREQUAL "")
         set(DEPLOY_FILES $<TARGET_FILE:${PROJECT_NAME}>)
 
         if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -330,10 +331,23 @@ foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
                 list(APPEND DEPLOY_FILES ${DIA_DLL})
         endif()
 
+        set(DEPLOY_FILES_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_files.txt")
+        set(DEPLOY_TARGETS_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_targets.txt")
+        file(GENERATE OUTPUT "${DEPLOY_FILES_LIST}" CONTENT "$<JOIN:${DEPLOY_FILES},
+>
+")
+        set(DEPLOY_TARGETS_CONTENT "")
+        foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
+                message("Adding deployment target ${DEPLOY_TARGET}.")
+                string(APPEND DEPLOY_TARGETS_CONTENT "${DEPLOY_TARGET}/SKSE/Plugins/
+")
+        endforeach()
+        file(WRITE "${DEPLOY_TARGETS_LIST}" "${DEPLOY_TARGETS_CONTENT}")
+
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} "-DFILES=$<JOIN:${DEPLOY_FILES},|>" "-DDEST=${DEPLOY_TARGET}/SKSE/Plugins/" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_plugin.cmake"
+                COMMAND ${CMAKE_COMMAND} "-DFILES_LIST=${DEPLOY_FILES_LIST}" "-DTARGETS_LIST=${DEPLOY_TARGETS_LIST}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_plugin.cmake"
                 VERBATIM)
-endforeach()
+endif()
 
 set(ZIP_DIR "${CMAKE_CURRENT_BINARY_DIR}/zip")
 add_custom_target(build-time-make-directory ALL
