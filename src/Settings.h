@@ -25,6 +25,12 @@ public:
 		std::vector<int> threadDumpHotkey{ VK_CONTROL, VK_SHIFT, VK_F12 };
 		bool threadDumpWriteMinidump{ false };
 
+		// Automatic freeze (ANR) detection
+		bool enableFreezeDetection{ true };
+		int freezeThresholdSeconds{ 45 };
+		int freezeBusyThresholdSeconds{ 300 };
+		int freezePromptSeconds{ 0 };
+
 		// Heap analysis settings
 		bool enableHeapAnalysis{ false };
 		int maxHeapsToCheck{ 1 };

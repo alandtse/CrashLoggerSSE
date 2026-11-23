@@ -30,6 +30,8 @@ set(headers
 )
 
 set(sources
+        src/Crash/FreezeWatchdog.cpp
+        src/Crash/FreezeWatchdog.h
         src/Crash/Introspection/Introspection.cpp
         src/Crash/Introspection/Introspection.h
         src/Crash/Introspection/HeapAnalysis.cpp

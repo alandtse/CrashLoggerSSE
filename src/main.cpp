@@ -1,4 +1,5 @@
 #include "Crash/CrashHandler.h"
+#include "Crash/FreezeWatchdog.h"
 #include "Crash/ModelDemandTracker.h"
 #include "Crash/ModelPathLookup.h"
 #include "Crash/Modules/ModuleHandler.h"
@@ -198,17 +199,23 @@ namespace
 					} catch (...) {
 						logger::error("Failed to check for problematic modules during kDataLoaded");
 					}
+					Crash::FreezeWatchdog::Start();
 					break;
 
 				// Skyrim game events.
-				case MessagingInterface::kNewGame:       // Player starts a new game from main menu.
-				case MessagingInterface::kPreLoadGame:   // Player selected a game to load, but it hasn't loaded yet.
-														 // Data will be the name of the loaded save.
+				case MessagingInterface::kNewGame:  // Player starts a new game from main menu.
+					break;
+				case MessagingInterface::kPreLoadGame:  // Player selected a game to load, but it hasn't loaded yet.
+														// Data will be the name of the loaded save.
+					Crash::FreezeWatchdog::SetLoading(true);
+					break;
 				case MessagingInterface::kPostLoadGame:  // Player's selected save game has finished loading.
 														 // Data will be a boolean indicating whether the load was successful.
-				case MessagingInterface::kSaveGame:      // The player has saved a game.
-														 // Data will be the save name.
-				case MessagingInterface::kDeleteGame:    // The player deleted a saved game from within the load menu.
+					Crash::FreezeWatchdog::SetLoading(false);
+					break;
+				case MessagingInterface::kSaveGame:    // The player has saved a game.
+													   // Data will be the save name.
+				case MessagingInterface::kDeleteGame:  // The player deleted a saved game from within the load menu.
 					break;
 				}
 			})) {
