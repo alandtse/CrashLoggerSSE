@@ -30,6 +30,8 @@ set(headers
 )
 
 set(sources
+        src/Crash/Breadcrumb.cpp
+        src/Crash/Breadcrumb.h
         src/Crash/Introspection/Introspection.cpp
         src/Crash/Introspection/Introspection.h
         src/Crash/Introspection/HeapAnalysis.cpp
