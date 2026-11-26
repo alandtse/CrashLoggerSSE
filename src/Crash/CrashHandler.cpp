@@ -1,6 +1,7 @@
 #include "Crash/CrashHandler.h"
 
 #include "Crash/Analysis.h"
+#include "Crash/Breadcrumb.h"
 #include "Crash/CommonHeader.h"
 #include "Crash/CppException.h"
 #include "Crash/GameState.h"
@@ -1529,10 +1530,13 @@ next_label:;
 		char handlerSection[64]{ "startup" };  // best-effort; read only by the watchdog
 		std::atomic_bool handlerDone{ false };
 		wchar_t handlerLogPath[MAX_PATH * 2]{};
+		HANDLE handlerStartEvent{ nullptr };
 
 		DWORD WINAPI HandlerWatchdog(LPVOID) noexcept
 		{
-			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS; waited += 250) {
+			// Created at install time: starting a thread inside a crashing process is unreliable.
+			::WaitForSingleObject(handlerStartEvent, INFINITE);
+			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS || ::IsDebuggerPresent(); waited += 250) {
 				if (handlerDone.load()) {
 					return 0;
 				}
@@ -1572,6 +1576,9 @@ next_label:;
 				::_resetstkoflw();
 			}
 
+			Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::HandlerEntered,
+				a_exception && a_exception->ExceptionRecord ? a_exception->ExceptionRecord->ExceptionCode : 0,
+				a_exception && a_exception->ExceptionRecord ? reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress) : 0);
 			const auto faultTicks = Crash::ModelDemandTracker::now_ticks();
 
 			// Install the SEH-to-C++ exception translator
@@ -1588,6 +1595,9 @@ next_label:;
 					if (IsDebuggerPresent())
 						DebugBreak();
 				}
+				if (handlerStartEvent) {
+					::SetEvent(handlerStartEvent);  // start the watchdog before any analysis can hang
+				}
 				// A fault inside the handler on the thread already running it would deadlock on
 				// the mutex below and freeze the game, so end the process (the log is flushed per section).
 				static std::atomic<DWORD> owner{ 0 };
@@ -1598,20 +1608,20 @@ next_label:;
 				const std::lock_guard l{ sync };
 				owner.store(::GetCurrentThreadId());
 
-				const auto modules = Modules::get_loaded_modules();
-				const std::span cmodules{ modules.begin(), modules.end() };
+				// Create the log file before anything else so a failure later still leaves a file.
 				auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
 				log = logPtr;
 				crashLogPath = logPath;
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::LogOpened);
 				{
 					const auto wide = logPath.wstring();
 					if (wide.size() < std::size(handlerLogPath)) {
 						std::copy(wide.begin(), wide.end(), handlerLogPath);
 					}
-					if (const auto thread = ::CreateThread(nullptr, 0, HandlerWatchdog, nullptr, 0, nullptr)) {
-						::CloseHandle(thread);
-					}
 				}
+
+				const auto modules = Modules::get_loaded_modules();
+				const std::span cmodules{ modules.begin(), modules.end() };
 
 				// Clean up old logs
 				const auto& debug = Settings::GetSingleton()->GetDebug();
@@ -1818,6 +1828,7 @@ next_label:;
 				// Ensure all log data is written to disk before we try to open the file
 				log->flush();
 				handlerDone.store(true);
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::HandlerDone);
 
 			} catch (const SEHException& se) {
 				// Log the SEH exception to the existing log (or create new if needed)
@@ -1907,9 +1918,22 @@ next_label:;
 
 		std::int32_t _stdcall VectoredExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
+			const auto code = a_exception && a_exception->ExceptionRecord ? a_exception->ExceptionRecord->ExceptionCode : 0u;
+
+			// Record fatal-class exceptions with raw writes so a later session can tell whether
+			// the process died before our handler ran.
+			if (Crash::Breadcrumb::IsFatalClass(code)) {
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::FatalException, code,
+					reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress));
+			}
+
 			// Keep our top-level filter installed (defends against other plugins / ENB
-			// overwriting SetUnhandledExceptionFilter).
-			::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
+			// overwriting SetUnhandledExceptionFilter). Skip the benign, very frequent
+			// debugger name/print exceptions: re-arming on each of them
+			// adds needless contention in a process that raises thousands per second.
+			if (code != 0x406D1388 && code != 0x40010006 && code != 0x4001000A) {
+				::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
+			}
 
 			// __fastfail and /GS-cookie failures bypass SetUnhandledExceptionFilter; VEH catches them.
 			// Guard prevents re-entry if logging itself trips a fast-fail.
@@ -1950,6 +1974,17 @@ next_label:;
 		{
 			ULONG stackGuarantee = 64 * 1024;
 			::SetThreadStackGuarantee(&stackGuarantee);
+		}
+
+		// Report what the previous session left behind, then start recording this one.
+		Crash::Breadcrumb::Install(crashPath);
+
+		// The watchdog waits for the handler to start; see HandlerWatchdog.
+		handlerStartEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (handlerStartEvent) {
+			if (const auto thread = ::CreateThread(nullptr, 0, HandlerWatchdog, nullptr, 0, nullptr)) {
+				::CloseHandle(thread);
+			}
 		}
 
 		// Install crash handlers
