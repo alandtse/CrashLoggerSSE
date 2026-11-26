@@ -93,13 +93,12 @@ namespace Crash::Breadcrumb
 			// Fatal-class exceptions are often handled and harmless. One that is the last thing the
 			// session recorded before it stopped is the signature of a crash that never reached us.
 			constexpr std::uint64_t WINDOW_MS = 10'000;
-			if (lastFatal && heartbeat && heartbeat->tick >= lastFatal->tick &&
-				heartbeat->tick - lastFatal->tick <= WINDOW_MS) {
+			if (lastFatal && (!heartbeat || heartbeat->tick <= lastFatal->tick + WINDOW_MS)) {
 				logger::warn(
-					"Previous session stopped {} ms after a fatal-class exception (0x{:08X} at 0x{:012X} on thread {}) "
+					"Previous session stopped shortly after a fatal-class exception (0x{:08X} at 0x{:012X} on thread {}) "
 					"without the crash handler running. The exception was likely handled by other code or the process was "
 					"terminated before the crash handler could run",
-					heartbeat->tick - lastFatal->tick, lastFatal->code, lastFatal->address, lastFatal->threadId);
+					lastFatal->code, lastFatal->address, lastFatal->threadId);
 			}
 		}
 

@@ -1933,9 +1933,9 @@ next_label:;
 
 			// Keep our top-level filter installed (defends against other plugins / ENB
 			// overwriting SetUnhandledExceptionFilter). Skip the benign, very frequent
-			// exceptions (debugger name/print, C++ throws): re-arming on each of them
+			// debugger name/print exceptions: re-arming on each of them
 			// adds needless contention in a process that raises thousands per second.
-			if (code != 0x406D1388 && code != 0x40010006 && code != 0x4001000A && code != 0xE06D7363) {
+			if (code != 0x406D1388 && code != 0x40010006 && code != 0x4001000A) {
 				::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
 			}
 
