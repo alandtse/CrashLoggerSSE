@@ -86,7 +86,7 @@ namespace Crash::Introspection::SSE
 				std::string handleString;
 				if (a_skyrimVm) {
 					RE::BSFixedString handle;
-					a_skyrimVm->GetHandlePolicy().ConvertHandleToString(obj->GetHandle(), handle);
+					const_cast<RE::SkyrimVM*>(a_skyrimVm)->GetVMRuntimeData().handlePolicy.ConvertHandleToString(obj->GetHandle(), handle);
 					if (handle.c_str() && handle[0]) {
 						handleString = handle.c_str();
 					}
@@ -1739,6 +1739,15 @@ namespace Crash::Introspection::SSE
 				return result;
 			}
 
+			// BSTCommonLLMessageQueue::head is private and Range() takes the queue lock,
+			// which the crashed thread may hold, so read the head at 0x18 without locking.
+			template <class Queue>
+			[[nodiscard]] auto queue_head(const Queue& a_queue) noexcept
+			{
+				using node_t = RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>;
+				return *reinterpret_cast<node_t* const*>(reinterpret_cast<const std::byte*>(&a_queue) + 0x18);
+			}
+
 			// Shared helper to traverse a FunctionMessage queue and format summaries
 			[[nodiscard]] std::string format_function_message_queue(
 				RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>* head,
@@ -1824,7 +1833,7 @@ namespace Crash::Introspection::SSE
 
 					try {
 						constexpr std::size_t MAX_MESSAGES = 3;
-						auto messageSummary = format_function_message_queue(object->funcMsgQueue.head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(object->funcMsgQueue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
 								messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
@@ -1874,11 +1883,11 @@ namespace Crash::Introspection::SSE
 						try {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Head"sv, "", tab_depth),
-								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue->head)));
+								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue_head(*queue))));
 						} catch (...) {}
 
 						constexpr std::size_t MAX_MESSAGES = 5;
-						auto messageSummary = format_function_message_queue(queue->head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(*queue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
@@ -2118,6 +2127,63 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class CellLoaderTask
+	{
+	public:
+		using value_type = RE::CellLoaderTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Interior"sv, "", tab_depth),
+					fmt::format("{}", data.interior));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}State"sv, "", tab_depth),
+					fmt::format("{}", data.state));
+				if (data.world)
+					TESForm<RE::TESForm>::filter(a_results, data.world, tab_depth + 1);
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
+	class AddCellGrassTask
+	{
+	public:
+		using value_type = RE::AddCellGrassTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cancelled"sv, "", tab_depth),
+					fmt::format("{}", data.cancel));
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
 	class ExtraTextDisplayData
 	{
 	public:
@@ -2170,7 +2236,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetHandlePolicy();
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetVMRuntimeData().handlePolicy;
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
@@ -3002,6 +3068,7 @@ namespace Crash::Introspection
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
+				std::make_pair(".?AVAddCellGrassTask@@"sv, SSE::AddCellGrassTask::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
 				std::make_pair(".?AVBGSLocation@@"sv, SSE::BGSLocation::filter),
 				std::make_pair(".?AVBSCullingProcess@@"sv, SSE::BSCullingProcess::filter),
@@ -3009,6 +3076,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVCellLoaderTask@@"sv, SSE::CellLoaderTask::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCombatNavmeshSearch@@"sv, SSE::CombatNavmeshSearch::filter),

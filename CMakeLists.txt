@@ -101,7 +101,14 @@ set(_CRASHLOGGER_BUILD_TESTS ${BUILD_TESTS})
 set(BUILD_TESTS OFF)
 # ModelDemandTracker builds its Demand() trampoline with Xbyak via Trampoline::allocate.
 set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
+# CommonLib links its prebuilt bundle whenever GITHUB_ACTIONS is set; that bundle is built
+# against another fmt than ours and fails to link, so CI builds it from source like local builds.
+set(_CRASHLOGGER_GITHUB_ACTIONS "$ENV{GITHUB_ACTIONS}")
+unset(ENV{GITHUB_ACTIONS})
 add_subdirectory(${CommonLibPath} ${CommonLibName} EXCLUDE_FROM_ALL)
+if(_CRASHLOGGER_GITHUB_ACTIONS)
+        set(ENV{GITHUB_ACTIONS} "${_CRASHLOGGER_GITHUB_ACTIONS}")
+endif()
 include("${CommonLibPath}/cmake/CommonLibSSE.cmake")
 # Restore user's BUILD_TESTS preference
 set(BUILD_TESTS ${_CRASHLOGGER_BUILD_TESTS})
