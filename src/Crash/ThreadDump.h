@@ -36,7 +36,7 @@ namespace Crash
 
 	std::optional<ThreadData> CollectThreadData(DWORD threadId, size_t index, std::span<const module_pointer> a_modules, const std::string& processName, const std::filesystem::path& pluginDir);
 	void DumpSingleThread(spdlog::logger& a_log, const ThreadData& data, std::span<const module_pointer> a_modules);
-	void WriteAllThreadsDump();
+	void WriteAllThreadsDump(std::string_view a_trigger = "Manual Trigger", std::string_view a_context = {}, bool a_interactive = true);
 	void HotkeyMonitorThreadFunction();
 	void StartHotkeyMonitoring();
 	void StopHotkeyMonitoring();
