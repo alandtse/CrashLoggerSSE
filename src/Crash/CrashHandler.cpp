@@ -1522,6 +1522,43 @@ next_label:;
 
 #undef SETTING_CASE
 
+		// Crash analysis walks arbitrary, possibly corrupted game memory and can hang
+		// (locks, bad linked lists, slow symbol loads). A hung handler freezes the game
+		// with an incomplete log, so a watchdog records where it stuck and ends the process.
+		constexpr DWORD HANDLER_TIMEOUT_MS = 120'000;
+		char handlerSection[64]{ "startup" };  // best-effort; read only by the watchdog
+		std::atomic_bool handlerDone{ false };
+		wchar_t handlerLogPath[MAX_PATH * 2]{};
+
+		DWORD WINAPI HandlerWatchdog(LPVOID) noexcept
+		{
+			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS; waited += 250) {
+				if (handlerDone.load()) {
+					return 0;
+				}
+				::Sleep(250);
+			}
+			if (handlerDone.load()) {
+				return 0;
+			}
+			// Raw Win32 append: the spdlog sink is not safe to touch while the stuck thread owns it.
+			char msg[256]{};
+			const auto len = std::snprintf(msg, sizeof(msg),
+				"\n===== CRASH LOGGER TIMEOUT =====\nCrash analysis did not finish within %lu s; stuck in section: %s\nThe crash log above is incomplete.\n",
+				HANDLER_TIMEOUT_MS / 1000, handlerSection);
+			if (handlerLogPath[0] && len > 0) {
+				const auto file = ::CreateFileW(handlerLogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+					nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+				if (file != INVALID_HANDLE_VALUE) {
+					DWORD written = 0;
+					::WriteFile(file, msg, static_cast<DWORD>(len), &written, nullptr);
+					::CloseHandle(file);
+				}
+			}
+			::TerminateProcess(::GetCurrentProcess(), EXIT_FAILURE);
+			return 0;
+		}
+
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
 			// Stack overflow path: when the original crash is a stack overflow, the
@@ -1551,14 +1588,30 @@ next_label:;
 					if (IsDebuggerPresent())
 						DebugBreak();
 				}
+				// A fault inside the handler on the thread already running it would deadlock on
+				// the mutex below and freeze the game, so end the process (the log is flushed per section).
+				static std::atomic<DWORD> owner{ 0 };
+				if (owner.load() == ::GetCurrentThreadId()) {
+					::TerminateProcess(::GetCurrentProcess(), EXIT_FAILURE);
+				}
 				static std::mutex sync;
 				const std::lock_guard l{ sync };
+				owner.store(::GetCurrentThreadId());
 
 				const auto modules = Modules::get_loaded_modules();
 				const std::span cmodules{ modules.begin(), modules.end() };
 				auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
 				log = logPtr;
 				crashLogPath = logPath;
+				{
+					const auto wide = logPath.wstring();
+					if (wide.size() < std::size(handlerLogPath)) {
+						std::copy(wide.begin(), wide.end(), handlerLogPath);
+					}
+					if (const auto thread = ::CreateThread(nullptr, 0, HandlerWatchdog, nullptr, 0, nullptr)) {
+						::CloseHandle(thread);
+					}
+				}
 
 				// Clean up old logs
 				const auto& debug = Settings::GetSingleton()->GetDebug();
@@ -1587,9 +1640,8 @@ next_label:;
 					if (a_separate)
 						log->critical(""sv);
 					try {
-						// Add timeout protection to prevent hanging on bad operations
+						std::snprintf(handlerSection, sizeof(handlerSection), "%s", a_name.c_str());
 						auto start = std::chrono::steady_clock::now();
-						constexpr auto timeout = std::chrono::seconds(30);
 
 						a_functor();
 
@@ -1765,6 +1817,7 @@ next_label:;
 
 				// Ensure all log data is written to disk before we try to open the file
 				log->flush();
+				handlerDone.store(true);
 
 			} catch (const SEHException& se) {
 				// Log the SEH exception to the existing log (or create new if needed)
@@ -1824,6 +1877,8 @@ next_label:;
 					return EXCEPTION_CONTINUE_SEARCH;
 				}
 			}
+
+			handlerDone.store(true);
 
 			// Upload crash log to pastebin if enabled
 			bool uploadedToWeb = false;
