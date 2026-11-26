@@ -164,8 +164,12 @@ namespace Crash
 		a_log.flush();  // keep partial output on disk if a later thread stalls
 	}
 
-	void WriteAllThreadsDump(std::string_view a_trigger, std::string_view a_context, bool a_interactive)
+	bool WriteAllThreadsDump(std::string_view a_trigger, std::string_view a_context, bool a_interactive)
 	{
+		// Two writers capturing at once could suspend each other and never resume.
+		static std::mutex writerMutex;
+		const std::lock_guard lock{ writerMutex };
+
 		try {
 			const auto prefix = a_interactive ? "threaddump-"sv : "freezedump-"sv;
 			auto [log, logPath] = get_timestamped_log(prefix, "thread dump"s);
@@ -195,7 +199,7 @@ namespace Crash
 			if (snapshot == INVALID_HANDLE_VALUE) {
 				log->critical("Failed to create thread snapshot"sv);
 				log->flush();
-				return;
+				return false;
 			}
 
 			THREADENTRY32 te{};
@@ -295,12 +299,13 @@ namespace Crash
 				RE::ConsoleLog::GetSingleton()->Print(message.c_str());
 				auto_open_log(logPath);
 			}
-
+			return true;
 		} catch (const std::exception& e) {
 			logger::error("Failed to write thread dump: {}"sv, e.what());
 		} catch (...) {
 			logger::error("Failed to write thread dump: unknown error"sv);
 		}
+		return false;
 	}
 
 	void HotkeyMonitorThreadFunction()

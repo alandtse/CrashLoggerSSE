@@ -30,6 +30,14 @@ namespace Crash::FreezeWatchdog
 			return v.QuadPart / 10'000;
 		}
 
+		// Excludes time the PC spent asleep, which would otherwise look like a freeze.
+		std::uint64_t awake_ms() noexcept
+		{
+			ULONGLONG ticks = 0;  // 100 ns units
+			::QueryUnbiasedInterruptTime(&ticks);
+			return ticks / 10'000;
+		}
+
 		std::uint64_t process_cpu_ms() noexcept
 		{
 			FILETIME c{}, e{}, k{}, u{};
@@ -71,7 +79,7 @@ namespace Crash::FreezeWatchdog
 				}
 				const auto ui = RE::UI::GetSingleton();
 				g_loadingMenu = ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
-				g_lastBeat = ::GetTickCount64();
+				g_lastBeat = awake_ms();
 				g_outstanding = false;
 			});
 		}
@@ -89,45 +97,55 @@ namespace Crash::FreezeWatchdog
 			return TRUE;
 		}
 
-		// Asks the user from a helper thread, since the game's own UI is not running. Closes the box if the
-		// main thread comes back, and applies the countdown (a_timeoutS > 0) as an automatic "dump".
-		Answer ask_user(std::uint64_t a_stallS, int a_timeoutS)
+		struct Prompt
 		{
+			std::wstring text;
 			std::atomic<int> result{ 0 };
 			std::atomic<bool> finished{ false };
-			std::atomic<DWORD> boxThread{ 0 };
-			const auto text = std::format(
+			std::atomic<DWORD> thread{ 0 };
+		};
+
+		constexpr int CLOSE_ATTEMPTS = 100;  // 50 ms apart
+
+		// Asks the user from a helper thread, since the game's own UI is not running. Closes the box if the
+		// main thread beats again after a_beatAtStall, and treats an expired countdown (a_timeoutS > 0) as "dump".
+		Answer ask_user(std::uint64_t a_beatAtStall, std::uint64_t a_stallS, int a_timeoutS)
+		{
+			const auto prompt = std::make_shared<Prompt>();
+			prompt->text = std::format(
 				L"Skyrim has not responded for {} seconds.\n\nWrite a thread dump to help diagnose the freeze?\n\n"
 				L"Yes: write the dump\nNo: ignore this freeze{}",
 				a_stallS,
 				a_timeoutS > 0 ? std::format(L"\n\nA dump is written automatically in {} seconds if you do not answer.", a_timeoutS) : L"");
-			const auto beatAtStart = g_lastBeat.load();
-			std::thread([&]() {
-				boxThread = ::GetCurrentThreadId();
-				result = ::MessageBoxW(nullptr, text.c_str(), L"Crash Logger: game frozen?",
+			std::thread([prompt]() {
+				prompt->thread = ::GetCurrentThreadId();
+				prompt->result = ::MessageBoxW(nullptr, prompt->text.c_str(), L"Crash Logger: game frozen?",
 					MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL | MB_TOPMOST | MB_SETFOREGROUND);
-				finished = true;
+				prompt->finished = true;
 			}).detach();
 
-			const auto start = ::GetTickCount64();
+			const auto recovered = [&]() { return g_lastBeat.load() != a_beatAtStall; };
+			const auto start = awake_ms();
 			for (;;) {
 				::Sleep(250);
-				if (finished) {
-					if (result == 0) {
+				const bool expired = a_timeoutS > 0 && awake_ms() - start >= static_cast<std::uint64_t>(a_timeoutS) * 1000;
+				if (recovered() || expired) {
+					// The box may not exist yet, so keep asking it to close for a while.
+					for (int i = 0; i < CLOSE_ATTEMPTS && !prompt->finished; ++i) {
+						::EnumThreadWindows(prompt->thread, close_box_cb, 0);
+						::Sleep(50);
+					}
+					if (!prompt->finished) {
+						logger::warn("The freeze prompt did not close"sv);
+					}
+					return recovered() ? Answer::Recovered : Answer::Dump;
+				}
+				if (prompt->finished) {
+					if (prompt->result == 0) {
 						logger::warn("Could not show the freeze prompt; writing the dump"sv);
 						return Answer::Dump;
 					}
-					return result == IDYES ? Answer::Dump : Answer::Ignore;
-				}
-				const bool recovered = g_lastBeat.load() != beatAtStart;
-				const bool expired = a_timeoutS > 0 && ::GetTickCount64() - start >= static_cast<std::uint64_t>(a_timeoutS) * 1000;
-				if (recovered || expired) {
-					// The box may not exist yet, so keep asking it to close until its thread returns.
-					while (!finished) {
-						::EnumThreadWindows(boxThread, close_box_cb, 0);
-						::Sleep(50);
-					}
-					return recovered ? Answer::Recovered : Answer::Dump;
+					return prompt->result == IDYES ? Answer::Dump : Answer::Ignore;
 				}
 			}
 		}
@@ -138,12 +156,18 @@ namespace Crash::FreezeWatchdog
 			const std::uint64_t idleMs = static_cast<std::uint64_t>(std::max(cfg.freezeThresholdSeconds, 5)) * 1000;
 			const std::uint64_t busyMs = std::max<std::uint64_t>(static_cast<std::uint64_t>(std::max(cfg.freezeBusyThresholdSeconds, 0)) * 1000, idleMs);
 
+			int promptS = cfg.freezePromptSeconds;
+			if (promptS < -1) {
+				logger::warn("Freeze Prompt Seconds {} is below -1; using 0"sv, promptS);
+				promptS = 0;
+			}
+
 			bool stalling = false;
 			bool dumped = false;
 			bool logged = false;
 			int dumps = 0;
 			std::uint64_t t0 = 0, proc0 = 0, main0 = 0;
-			std::uint64_t baseline = 0, lastProc = process_cpu_ms(), lastTick = ::GetTickCount64();
+			std::uint64_t baseline = 0, lastProc = process_cpu_ms(), lastTick = awake_ms();
 
 			for (;;) {
 				::Sleep(static_cast<DWORD>(POLL_MS));
@@ -151,8 +175,9 @@ namespace Crash::FreezeWatchdog
 					post_beat();
 				}
 
-				const auto now = ::GetTickCount64();
-				const auto stall = now - g_lastBeat.load();
+				const auto beat = g_lastBeat.load();
+				const auto now = awake_ms();
+				const auto stall = now - beat;
 				if (stall < STALL_START_MS) {
 					stalling = false;
 					dumped = false;
@@ -191,11 +216,12 @@ namespace Crash::FreezeWatchdog
 					continue;
 				}
 
-				const auto mainMs = thread_cpu_ms(g_mainThread) - main0;
+				const auto mainNow = thread_cpu_ms(g_mainThread);
+				const auto mainCpu = main0 && mainNow >= main0 ? std::format("{} ms", mainNow - main0) : std::string("unavailable");
 				const char* how = "automatic";
-				if (cfg.freezePromptSeconds != 0) {
+				if (promptS != 0) {
 					logger::warn("Main thread unresponsive for {} s; asking whether to write a freeze dump"sv, stall / 1000);
-					const auto answer = ask_user(stall / 1000, cfg.freezePromptSeconds);
+					const auto answer = ask_user(beat, stall / 1000, promptS);
 					if (answer == Answer::Recovered) {
 						continue;
 					}
@@ -204,25 +230,26 @@ namespace Crash::FreezeWatchdog
 						logger::info("Freeze dump declined by the user"sv);
 						continue;
 					}
-					how = cfg.freezePromptSeconds > 0 ? "confirmed by the user or countdown expired" : "confirmed by the user";
+					how = promptS > 0 ? "confirmed by the user or countdown expired" : "confirmed by the user";
 				}
 				const auto context = std::format(
 					"FREEZE DUMP ({}): the main thread (id {}) has not run a queued task for {} s\n"
 					"Game window in foreground: yes\n"
 					"Loading: save load {}, loading menu {}\n"
 					"Process CPU while stalled: {} ms/s against a healthy baseline of {} ms/s ({})\n"
-					"Main thread CPU while stalled: {} ms over {} s\n"
+					"Main thread CPU while stalled: {} over {} s\n"
 					"Threshold applied: {} s ({})",
 					how, g_mainThread.load(), stall / 1000,
 					g_saveLoading.load() ? "in progress" : "no", g_loadingMenu.load() ? "open" : "closed",
 					procMsPerS, baseline, busy ? "busy: compiling, loading or spinning" : "idle: likely a deadlock",
-					mainMs, sample / 1000,
+					mainCpu, sample / 1000,
 					threshold / 1000, (busy || loading) ? "busy/loading" : "idle");
 
 				dumped = true;
-				++dumps;
 				logger::warn("Main thread unresponsive for {} s; writing a freeze dump"sv, stall / 1000);
-				WriteAllThreadsDump("Automatic Freeze Detection", context, false);
+				if (WriteAllThreadsDump("Automatic Freeze Detection", context, false)) {
+					++dumps;
+				}
 			}
 		}
 	}
@@ -233,14 +260,20 @@ namespace Crash::FreezeWatchdog
 		if (!cfg.enableFreezeDetection || g_started.exchange(true)) {
 			return;
 		}
-		g_lastBeat = ::GetTickCount64();
-		std::thread([]() {
-			try {
-				run();
-			} catch (...) {
-				logger::error("Freeze watchdog stopped after an exception"sv);
-			}
-		}).detach();
+		g_lastBeat = awake_ms();
+		try {
+			std::thread([]() {
+				try {
+					run();
+				} catch (...) {
+					logger::error("Freeze watchdog stopped after an exception"sv);
+				}
+			}).detach();
+		} catch (const std::system_error& e) {
+			logger::error("Could not start the freeze watchdog: {}"sv, e.what());
+			g_started = false;
+			return;
+		}
 		logger::info("Freeze detection enabled (idle {} s, busy {} s)"sv, cfg.freezeThresholdSeconds, cfg.freezeBusyThresholdSeconds);
 	}
 
