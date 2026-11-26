@@ -27,6 +27,28 @@ namespace Crash
 
 	namespace
 	{
+		// Copies up to a_size bytes from a_address one page at a time and returns how many were copied,
+		// because a single read that runs past the top of a thread's stack fails as a whole.
+		std::size_t ReadStack(std::uintptr_t a_address, void* a_out, std::size_t a_size) noexcept
+		{
+			constexpr std::uintptr_t PAGE_SIZE = 0x1000;
+			auto* const out = static_cast<std::byte*>(a_out);
+			std::size_t copied = 0;
+			while (copied < a_size) {
+				const auto address = a_address + copied;
+				const auto chunk = std::min<std::size_t>(a_size - copied, PAGE_SIZE - (address & (PAGE_SIZE - 1)));
+				SIZE_T read = 0;
+				if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(address), out + copied, chunk, &read)) {
+					return copied + read;
+				}
+				copied += read;
+				if (read != chunk) {
+					break;
+				}
+			}
+			return copied;
+		}
+
 		// Takes the thread's registers and top of stack while it is suspended. A suspended thread may
 		// hold the heap, loader or logger lock, so nothing here allocates or takes a lock: anything
 		// that does (symbols, strings, logging) would deadlock the dump the moment it needs that lock.
@@ -41,10 +63,7 @@ namespace Crash
 			if (SuspendThread(thread) != static_cast<DWORD>(-1)) {
 				a_out.ctx.ContextFlags = CONTEXT_FULL;
 				if (GetThreadContext(thread, &a_out.ctx)) {
-					SIZE_T read = 0;
-					ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(a_out.ctx.Rsp),
-						a_out.stack, sizeof(a_out.stack), &read);
-					a_out.stackCount = read / sizeof(std::size_t);
+					a_out.stackCount = ReadStack(a_out.ctx.Rsp, a_out.stack, sizeof(a_out.stack)) / sizeof(std::size_t);
 					ok = true;
 				}
 				ResumeThread(thread);
