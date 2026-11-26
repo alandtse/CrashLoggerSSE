@@ -94,6 +94,7 @@ namespace Crash::FreezeWatchdog
 		Answer ask_user(std::uint64_t a_stallS, int a_timeoutS)
 		{
 			std::atomic<int> result{ 0 };
+			std::atomic<bool> finished{ false };
 			std::atomic<DWORD> boxThread{ 0 };
 			const auto text = std::format(
 				L"Skyrim has not responded for {} seconds.\n\nWrite a thread dump to help diagnose the freeze?\n\n"
@@ -105,35 +106,37 @@ namespace Crash::FreezeWatchdog
 				boxThread = ::GetCurrentThreadId();
 				result = ::MessageBoxW(nullptr, text.c_str(), L"Crash Logger: game frozen?",
 					MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL | MB_TOPMOST | MB_SETFOREGROUND);
+				finished = true;
 			}).detach();
 
 			const auto start = ::GetTickCount64();
-			Answer answer = Answer::Ignore;
 			for (;;) {
 				::Sleep(250);
-				if (const auto r = result.load()) {
-					answer = r == IDYES ? Answer::Dump : Answer::Ignore;
-					break;
+				if (finished) {
+					if (result == 0) {
+						logger::warn("Could not show the freeze prompt; writing the dump"sv);
+						return Answer::Dump;
+					}
+					return result == IDYES ? Answer::Dump : Answer::Ignore;
 				}
 				const bool recovered = g_lastBeat.load() != beatAtStart;
 				const bool expired = a_timeoutS > 0 && ::GetTickCount64() - start >= static_cast<std::uint64_t>(a_timeoutS) * 1000;
 				if (recovered || expired) {
-					::EnumThreadWindows(boxThread, close_box_cb, 0);
-					while (!result.load()) {
+					// The box may not exist yet, so keep asking it to close until its thread returns.
+					while (!finished) {
+						::EnumThreadWindows(boxThread, close_box_cb, 0);
 						::Sleep(50);
 					}
-					answer = recovered ? Answer::Recovered : Answer::Dump;
-					break;
+					return recovered ? Answer::Recovered : Answer::Dump;
 				}
 			}
-			return answer;
 		}
 
 		void run()
 		{
 			const auto& cfg = Settings::GetSingleton()->GetDebug();
 			const std::uint64_t idleMs = static_cast<std::uint64_t>(std::max(cfg.freezeThresholdSeconds, 5)) * 1000;
-			const std::uint64_t busyMs = std::max<std::uint64_t>(static_cast<std::uint64_t>(cfg.freezeBusyThresholdSeconds) * 1000, idleMs);
+			const std::uint64_t busyMs = std::max<std::uint64_t>(static_cast<std::uint64_t>(std::max(cfg.freezeBusyThresholdSeconds, 0)) * 1000, idleMs);
 
 			bool stalling = false;
 			bool dumped = false;
