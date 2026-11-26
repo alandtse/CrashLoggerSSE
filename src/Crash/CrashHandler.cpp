@@ -1539,7 +1539,7 @@ next_label:;
 		{
 			// Created at install time: starting a thread inside a crashing process is unreliable.
 			::WaitForSingleObject(handlerStartEvent, INFINITE);
-			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS; waited += 250) {
+			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS || ::IsDebuggerPresent(); waited += 250) {
 				if (handlerDone.load()) {
 					return 0;
 				}
@@ -1582,10 +1582,6 @@ next_label:;
 			Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::HandlerEntered,
 				a_exception && a_exception->ExceptionRecord ? a_exception->ExceptionRecord->ExceptionCode : 0,
 				a_exception && a_exception->ExceptionRecord ? reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress) : 0);
-			if (handlerStartEvent) {
-				::SetEvent(handlerStartEvent);  // start the watchdog before any analysis can hang
-			}
-
 			const auto faultTicks = Crash::ModelDemandTracker::now_ticks();
 
 			// Install the SEH-to-C++ exception translator
@@ -1601,6 +1597,9 @@ next_label:;
 					}
 					if (IsDebuggerPresent())
 						DebugBreak();
+				}
+				if (handlerStartEvent) {
+					::SetEvent(handlerStartEvent);  // start the watchdog before any analysis can hang
 				}
 				// A fault inside the handler on the thread already running it would deadlock on
 				// the mutex below and freeze the game, so end the process (the log is flushed per section).
