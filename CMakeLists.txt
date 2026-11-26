@@ -331,7 +331,7 @@ if(NOT "$ENV{SkyrimPluginTargets}" STREQUAL "")
                 list(APPEND DEPLOY_FILES ${DIA_DLL})
         endif()
 
-        set(DEPLOY_FILES_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_files.txt")
+        set(DEPLOY_FILES_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_files_$<CONFIG>.txt")
         set(DEPLOY_TARGETS_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_targets.txt")
         file(GENERATE OUTPUT "${DEPLOY_FILES_LIST}" CONTENT "$<JOIN:${DEPLOY_FILES},
 >

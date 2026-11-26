@@ -6,8 +6,8 @@
 #
 #   cmake -DFILES_LIST=<file> -DTARGETS_LIST=<file> -P deploy_plugin.cmake
 
-file(STRINGS "${FILES_LIST}" files)
-file(STRINGS "${TARGETS_LIST}" targets)
+file(STRINGS "${FILES_LIST}" files ENCODING UTF-8)
+file(STRINGS "${TARGETS_LIST}" targets ENCODING UTF-8)
 
 foreach(target IN LISTS targets)
 	foreach(file IN LISTS files)
