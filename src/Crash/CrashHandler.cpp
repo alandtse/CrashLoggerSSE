@@ -1075,46 +1075,43 @@ namespace Crash
 			}
 		}
 
-		void print_recent_model_demands_section(spdlog::logger& a_log, std::int64_t a_faultTicks)
+		void print_model_loading_section(spdlog::logger& a_log, std::int64_t a_faultTicks, const ::CONTEXT& a_context)
 		{
+			// Diagnostic-only: each source is read on its own so a failure in one never hides the other or the rest of the log.
+			Crash::ModelDemandTracker::Report report;
 			try {
-				const auto report = Crash::ModelDemandTracker::get_report(a_faultTicks);
-				if (report.requests.empty())
-					return;
+				report = Crash::ModelDemandTracker::get_report(a_faultTicks);
+			} catch (...) {}
 
-				a_log.critical(""sv);
+			std::vector<ModelPathLookup::Hit> hits;
+			try {
+				constexpr std::size_t MAX_HITS = 8;
+				if (const auto stack = get_stack_info(a_context))
+					hits = ModelPathLookup::FindPathsOnStack(*stack, MAX_HITS);
+			} catch (...) {}
+
+			if (hits.empty() && report.requests.empty())
+				return;
+
+			a_log.critical(""sv);
+			a_log.critical("MODEL LOADING (this thread):"sv);
+
+			if (!hits.empty()) {
+				a_log.critical("\tloading now (resource ids on the stack, innermost first):"sv);
+				for (const auto& hit : hits) {
+					a_log.critical("\t\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
+				}
+			}
+
+			if (!report.requests.empty()) {
 				if (report.inFlight) {
-					a_log.critical("CRASHED WHILE LOADING A MODEL (this thread, newest first):"sv);
+					a_log.critical("\tcrashed inside Demand (newest first):"sv);
 				} else {
-					a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
+					a_log.critical("\trecent Demand requests (newest first):"sv);
 				}
 				for (const auto& request : report.requests) {
-					a_log.critical("\t{:>9.3f} ms ago  {}{}"sv, request.ageMs, request.path, request.active ? "  (in progress)"sv : ""sv);
+					a_log.critical("\t\t{:>9.3f} ms ago  {}{}"sv, request.ageMs, request.path, request.active ? "  (in progress)"sv : ""sv);
 				}
-			} catch (...) {
-				// Diagnostic-only section; never let a failure here affect the rest of the log.
-			}
-		}
-
-		void print_model_paths_section(spdlog::logger& a_log, const ::CONTEXT& a_context)
-		{
-			try {
-				const auto stack = get_stack_info(a_context);
-				if (!stack)
-					return;
-
-				constexpr std::size_t MAX_HITS = 8;
-				const auto hits = ModelPathLookup::FindPathsOnStack(*stack, MAX_HITS);
-				if (hits.empty())
-					return;
-
-				a_log.critical(""sv);
-				a_log.critical("MODEL PATHS FOR RESOURCE IDS ON THIS THREAD'S STACK (innermost first):"sv);
-				for (const auto& hit : hits) {
-					a_log.critical("\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
-				}
-			} catch (...) {
-				// Diagnostic-only section; never let a failure here affect the rest of the log.
 			}
 		}
 
@@ -1669,8 +1666,7 @@ next_label:;
 
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
-				print([&]() { print_recent_model_demands_section(*log, faultTicks); }, "print_recent_model_demands", false);
-				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths", false);
+				print([&]() { print_model_loading_section(*log, faultTicks, *a_exception->ContextRecord); }, "print_model_loading", false);
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
