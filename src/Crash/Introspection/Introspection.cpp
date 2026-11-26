@@ -86,7 +86,7 @@ namespace Crash::Introspection::SSE
 				std::string handleString;
 				if (a_skyrimVm) {
 					RE::BSFixedString handle;
-					a_skyrimVm->GetHandlePolicy().ConvertHandleToString(obj->GetHandle(), handle);
+					const_cast<RE::SkyrimVM*>(a_skyrimVm)->GetVMRuntimeData().handlePolicy.ConvertHandleToString(obj->GetHandle(), handle);
 					if (handle.c_str() && handle[0]) {
 						handleString = handle.c_str();
 					}
@@ -235,6 +235,121 @@ namespace Crash::Introspection::SSE
 							"{} ({:02})"sv,
 							formTypeName, std::to_underlying(formType)));
 			} catch (...) {}
+		}
+	};
+
+	class TESPackage
+	{
+	public:
+		using value_type = RE::TESPackage;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto package = static_cast<const value_type*>(a_ptr);
+			if (!package)
+				return;
+
+			TESForm<RE::TESPackage>::filter(a_results, a_ptr, tab_depth);
+
+			try {
+				const auto packType = package->packData.packType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Package Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(packType), std::to_underlying(packType)));
+			} catch (...) {}
+
+			try {
+				const auto procedureType = package->procedureType.get();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Procedure Type"sv, "", tab_depth),
+					fmt::format("{} ({})"sv, magic_enum::enum_name(procedureType), std::to_underlying(procedureType)));
+			} catch (...) {}
+
+			try {
+				if (const auto quest = package->ownerQuest) {
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Owner Quest"sv, "", tab_depth),
+						"---");
+					TESForm<RE::TESQuest>::filter(a_results, quest, tab_depth + 1);
+				}
+			} catch (...) {}
+
+			try {
+				const auto packType = package->packData.packType.get();
+				if (packType == RE::PACKAGE_TYPE::kPackage || packType == RE::PACKAGE_TYPE::kPackageTemplate)
+					filter_data_inputs(a_results, static_cast<const RE::TESCustomPackageData*>(package->data), tab_depth);
+			} catch (...) {}
+		}
+
+	private:
+		static constexpr std::size_t MAX_DATA_INPUTS = 32;
+
+		[[nodiscard]] static std::string rtti_class_name(const void* a_object)
+		{
+			const auto vtable = *reinterpret_cast<const std::uintptr_t* const*>(a_object);
+			const auto& module = REL::Module::get();
+			const auto inSegment = [&](const void* a_ptr, REL::Segment::Name a_segment) {
+				const auto segment = module.segment(a_segment);
+				const auto address = reinterpret_cast<std::uintptr_t>(a_ptr);
+				return address >= segment.address() && address < segment.address() + segment.size();
+			};
+			if (!inSegment(vtable, REL::Segment::rdata))
+				return {};
+
+			const auto col = reinterpret_cast<const RE::RTTI::CompleteObjectLocator*>(vtable[-1]);
+			if (!inSegment(col, REL::Segment::rdata))
+				return {};
+
+			const auto typeDesc = reinterpret_cast<const RE::RTTI::TypeDescriptor*>(module.base() + col->typeDescriptor.offset());
+			if (!inSegment(typeDesc, REL::Segment::data))
+				return {};
+
+			std::string_view name = typeDesc->mangled_name();
+			constexpr std::string_view prefix = ".?AV";
+			constexpr std::string_view suffix = "@@";
+			if (name.starts_with(prefix))
+				name.remove_prefix(prefix.size());
+			if (name.ends_with(suffix))
+				name.remove_suffix(suffix.size());
+			return std::string{ name };
+		}
+
+		static void filter_data_inputs(
+			filter_results& a_results,
+			const RE::TESCustomPackageData* a_data, int tab_depth)
+		{
+			if (!a_data)
+				return;
+
+			const auto& list = a_data->data;
+			if (!list.data || !list.uids)
+				return;
+
+			const std::size_t count = list.dataSize;
+			for (std::size_t i = 0; i < std::min(count, MAX_DATA_INPUTS); ++i) {
+				try {
+					const auto entry = list.data[i];
+					if (!entry)
+						continue;
+
+					std::string value = rtti_class_name(entry);
+					try {
+						const auto& typeName = entry->GetTypeName();
+						if (typeName.c_str() && typeName.c_str()[0])
+							value = fmt::format("{} (type {})"sv, value, typeName.c_str());
+					} catch (...) {}
+
+					a_results.emplace_back(
+						fmt::format("{:	>{}}Data Input {}"sv, "", tab_depth, list.uids[i]),
+						SSE::quoted(value));
+				} catch (...) {}
+			}
+			if (count > MAX_DATA_INPUTS)
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Data Inputs"sv, "", tab_depth),
+					fmt::format("{} total, first {} shown"sv, count, MAX_DATA_INPUTS));
 		}
 	};
 
@@ -1624,6 +1739,15 @@ namespace Crash::Introspection::SSE
 				return result;
 			}
 
+			// BSTCommonLLMessageQueue::head is private and Range() takes the queue lock,
+			// which the crashed thread may hold, so read the head at 0x18 without locking.
+			template <class Queue>
+			[[nodiscard]] auto queue_head(const Queue& a_queue) noexcept
+			{
+				using node_t = RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>;
+				return *reinterpret_cast<node_t* const*>(reinterpret_cast<const std::byte*>(&a_queue) + 0x18);
+			}
+
 			// Shared helper to traverse a FunctionMessage queue and format summaries
 			[[nodiscard]] std::string format_function_message_queue(
 				RE::BSTFreeListElem<RE::BSScript::Internal::FunctionMessage>* head,
@@ -1709,7 +1833,7 @@ namespace Crash::Introspection::SSE
 
 					try {
 						constexpr std::size_t MAX_MESSAGES = 3;
-						auto messageSummary = format_function_message_queue(object->funcMsgQueue.head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(object->funcMsgQueue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							if (object->uiWaitingFunctionMessages > MAX_MESSAGES) {
 								messageSummary += fmt::format("{:\t>{}}... ({} more)\n"sv, "", tab_depth, object->uiWaitingFunctionMessages - MAX_MESSAGES);
@@ -1759,11 +1883,11 @@ namespace Crash::Introspection::SSE
 						try {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Head"sv, "", tab_depth),
-								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue->head)));
+								fmt::format("0x{:X}"sv, reinterpret_cast<std::uintptr_t>(queue_head(*queue))));
 						} catch (...) {}
 
 						constexpr std::size_t MAX_MESSAGES = 5;
-						auto messageSummary = format_function_message_queue(queue->head, MAX_MESSAGES, tab_depth);
+						auto messageSummary = format_function_message_queue(queue_head(*queue), MAX_MESSAGES, tab_depth);
 						if (!messageSummary.empty() && messageSummary != "\n"s) {
 							a_results.emplace_back(
 								fmt::format("{:\t>{}}Queued Messages"sv, "", tab_depth),
@@ -2003,6 +2127,63 @@ namespace Crash::Introspection::SSE
 		};
 	};
 
+	class CellLoaderTask
+	{
+	public:
+		using value_type = RE::CellLoaderTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Interior"sv, "", tab_depth),
+					fmt::format("{}", data.interior));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}State"sv, "", tab_depth),
+					fmt::format("{}", data.state));
+				if (data.world)
+					TESForm<RE::TESForm>::filter(a_results, data.world, tab_depth + 1);
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
+	class AddCellGrassTask
+	{
+	public:
+		using value_type = RE::AddCellGrassTask;
+
+		static void filter(
+			filter_results& a_results,
+			const void* a_ptr, int tab_depth = 0) noexcept
+		{
+			const auto object = static_cast<const value_type*>(a_ptr);
+			if (!object)
+				return;
+			try {
+				const auto& data = const_cast<value_type*>(object)->GetRuntimeData();
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cell Coordinates"sv, "", tab_depth),
+					fmt::format("({}, {})", data.x, data.y));
+				a_results.emplace_back(
+					fmt::format("{:	>{}}Cancelled"sv, "", tab_depth),
+					fmt::format("{}", data.cancel));
+				if (data.cell)
+					TESForm<RE::TESObjectCELL>::filter(a_results, data.cell, tab_depth + 1);
+			} catch (...) {}
+		};
+	};
+
 	class ExtraTextDisplayData
 	{
 	public:
@@ -2055,7 +2236,7 @@ namespace Crash::Introspection::SSE
 			const void* a_ptr, int tab_depth = 0) noexcept
 		{
 			const auto object = static_cast<const value_type*>(a_ptr);
-			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetHandlePolicy();
+			const auto& handlePolicy = RE::SkyrimVM::GetSingleton()->GetVMRuntimeData().handlePolicy;
 			const auto datahandler = RE::TESDataHandler::GetSingleton();
 			try {
 				auto currentStackFrame = object->stack->top;  // get stack from BSScript::Internal::CodeTasklet (or get stack directly if it's a stack object
@@ -2887,6 +3068,7 @@ namespace Crash::Introspection
 		private:
 			static constexpr auto FILTERS = frozen::make_map({
 				std::make_pair(".?AULooseFileStreamBase@?A0x5f338b68@BSResource@@"sv, SSE::BSResource::LooseFileStreamBase::filter),
+				std::make_pair(".?AVAddCellGrassTask@@"sv, SSE::AddCellGrassTask::filter),
 				std::make_pair(".?AVActorKnowledge@@"sv, SSE::ActorKnowledge::filter),
 				std::make_pair(".?AVBGSLocation@@"sv, SSE::BGSLocation::filter),
 				std::make_pair(".?AVBSCullingProcess@@"sv, SSE::BSCullingProcess::filter),
@@ -2894,6 +3076,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVBSShader@@"sv, SSE::BSShader::filter),
 				std::make_pair(".?AVBSShaderMaterial@@"sv, SSE::BSShaderMaterial::filter),
 				std::make_pair(".?AVBSShaderProperty@@"sv, SSE::BSShaderProperty::filter),
+				std::make_pair(".?AVCellLoaderTask@@"sv, SSE::CellLoaderTask::filter),
 				std::make_pair(".?AVCharacter@@"sv, SSE::TESForm<RE::Character>::filter),
 				std::make_pair(".?AVCodeTasklet@Internal@BSScript@@"sv, SSE::CodeTasklet::filter),
 				std::make_pair(".?AVCombatNavmeshSearch@@"sv, SSE::CombatNavmeshSearch::filter),
@@ -2930,6 +3113,7 @@ namespace Crash::Introspection
 				std::make_pair(".?AVTESFullName@@"sv, SSE::TESFullName::filter),
 				std::make_pair(".?AVTESNPC@@"sv, SSE::TESForm<RE::TESNPC>::filter),
 				std::make_pair(".?AVTESObjectCELL@@"sv, SSE::TESForm<RE::TESObjectCELL>::filter),
+				std::make_pair(".?AVTESPackage@@"sv, SSE::TESPackage::filter),
 				std::make_pair(".?AVTESObjectREFR@@"sv, SSE::TESObjectREFR::filter),
 				std::make_pair(".?AVTESQuest@@"sv, SSE::TESQuest::filter),
 				std::make_pair(".?AVTESRegionDataSound@@"sv, SSE::TESRegionDataSound::filter),
