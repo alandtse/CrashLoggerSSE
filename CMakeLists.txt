@@ -30,6 +30,8 @@ set(headers
 )
 
 set(sources
+        src/Crash/Breadcrumb.cpp
+        src/Crash/Breadcrumb.h
         src/Crash/FreezeWatchdog.cpp
         src/Crash/FreezeWatchdog.h
         src/Crash/Introspection/Introspection.cpp
@@ -103,7 +105,14 @@ set(_CRASHLOGGER_BUILD_TESTS ${BUILD_TESTS})
 set(BUILD_TESTS OFF)
 # ModelDemandTracker builds its Demand() trampoline with Xbyak via Trampoline::allocate.
 set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
+# CommonLib links its prebuilt bundle whenever GITHUB_ACTIONS is set; that bundle is built
+# against another fmt than ours and fails to link, so CI builds it from source like local builds.
+set(_CRASHLOGGER_GITHUB_ACTIONS "$ENV{GITHUB_ACTIONS}")
+unset(ENV{GITHUB_ACTIONS})
 add_subdirectory(${CommonLibPath} ${CommonLibName} EXCLUDE_FROM_ALL)
+if(_CRASHLOGGER_GITHUB_ACTIONS)
+        set(ENV{GITHUB_ACTIONS} "${_CRASHLOGGER_GITHUB_ACTIONS}")
+endif()
 include("${CommonLibPath}/cmake/CommonLibSSE.cmake")
 # Restore user's BUILD_TESTS preference
 set(BUILD_TESTS ${_CRASHLOGGER_BUILD_TESTS})
@@ -320,21 +329,36 @@ set_property(TARGET ${PROJECT_NAME}
         APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${OUTPUT_SCRIPTS}")
 
 # Automatic deployment to Mod Organizer 2 mod directory.
-foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
-        message("Adding deployment target ${DEPLOY_TARGET}.")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
+# The file and target lists go through generated files instead of the command line: each target
+# repeated the full file list, and a long or '|'-laden POST_BUILD line broke under cmd.exe.
+if(NOT "$ENV{SkyrimPluginTargets}" STREQUAL "")
+        set(DEPLOY_FILES $<TARGET_FILE:${PROJECT_NAME}>)
 
         if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
+                list(APPEND DEPLOY_FILES $<TARGET_PDB_FILE:${PROJECT_NAME}>)
         endif()
 
         if(DIASDK_LIBRARIES)
-                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy ${DIA_DLL} "${DEPLOY_TARGET}/SKSE/Plugins/")
-                endif()
-endforeach()
+                list(APPEND DEPLOY_FILES ${DIA_DLL})
+        endif()
+
+        set(DEPLOY_FILES_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_files_$<CONFIG>.txt")
+        set(DEPLOY_TARGETS_LIST "${CMAKE_CURRENT_BINARY_DIR}/deploy_targets.txt")
+        file(GENERATE OUTPUT "${DEPLOY_FILES_LIST}" CONTENT "$<JOIN:${DEPLOY_FILES},
+>
+")
+        set(DEPLOY_TARGETS_CONTENT "")
+        foreach(DEPLOY_TARGET $ENV{SkyrimPluginTargets})
+                message("Adding deployment target ${DEPLOY_TARGET}.")
+                string(APPEND DEPLOY_TARGETS_CONTENT "${DEPLOY_TARGET}/SKSE/Plugins/
+")
+        endforeach()
+        file(WRITE "${DEPLOY_TARGETS_LIST}" "${DEPLOY_TARGETS_CONTENT}")
+
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} "-DFILES_LIST=${DEPLOY_FILES_LIST}" "-DTARGETS_LIST=${DEPLOY_TARGETS_LIST}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_plugin.cmake"
+                VERBATIM)
+endif()
 
 set(ZIP_DIR "${CMAKE_CURRENT_BINARY_DIR}/zip")
 add_custom_target(build-time-make-directory ALL

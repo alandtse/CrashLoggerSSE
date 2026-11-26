@@ -1,6 +1,7 @@
 #include "Crash/CrashHandler.h"
 
 #include "Crash/Analysis.h"
+#include "Crash/Breadcrumb.h"
 #include "Crash/CommonHeader.h"
 #include "Crash/CppException.h"
 #include "Crash/GameState.h"
@@ -1075,46 +1076,43 @@ namespace Crash
 			}
 		}
 
-		void print_recent_model_demands_section(spdlog::logger& a_log, std::int64_t a_faultTicks)
+		void print_model_loading_section(spdlog::logger& a_log, std::int64_t a_faultTicks, const ::CONTEXT& a_context)
 		{
+			// Diagnostic-only: each source is read on its own so a failure in one never hides the other or the rest of the log.
+			Crash::ModelDemandTracker::Report report;
 			try {
-				const auto report = Crash::ModelDemandTracker::get_report(a_faultTicks);
-				if (report.requests.empty())
-					return;
+				report = Crash::ModelDemandTracker::get_report(a_faultTicks);
+			} catch (...) {}
 
-				a_log.critical(""sv);
+			std::vector<ModelPathLookup::Hit> hits;
+			try {
+				constexpr std::size_t MAX_HITS = 8;
+				if (const auto stack = get_stack_info(a_context))
+					hits = ModelPathLookup::FindPathsOnStack(*stack, MAX_HITS);
+			} catch (...) {}
+
+			if (hits.empty() && report.requests.empty())
+				return;
+
+			a_log.critical(""sv);
+			a_log.critical("MODEL LOADING (this thread):"sv);
+
+			if (!hits.empty()) {
+				a_log.critical("\tloading now (resource ids on the stack, innermost first):"sv);
+				for (const auto& hit : hits) {
+					a_log.critical("\t\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
+				}
+			}
+
+			if (!report.requests.empty()) {
 				if (report.inFlight) {
-					a_log.critical("CRASHED WHILE LOADING A MODEL (this thread, newest first):"sv);
+					a_log.critical("\tcrashed inside Demand (newest first):"sv);
 				} else {
-					a_log.critical("RECENT MODEL REQUESTS (this thread, newest first):"sv);
+					a_log.critical("\trecent Demand requests (newest first):"sv);
 				}
 				for (const auto& request : report.requests) {
-					a_log.critical("\t{:>9.3f} ms ago  {}{}"sv, request.ageMs, request.path, request.active ? "  (in progress)"sv : ""sv);
+					a_log.critical("\t\t{:>9.3f} ms ago  {}{}"sv, request.ageMs, request.path, request.active ? "  (in progress)"sv : ""sv);
 				}
-			} catch (...) {
-				// Diagnostic-only section; never let a failure here affect the rest of the log.
-			}
-		}
-
-		void print_model_paths_section(spdlog::logger& a_log, const ::CONTEXT& a_context)
-		{
-			try {
-				const auto stack = get_stack_info(a_context);
-				if (!stack)
-					return;
-
-				constexpr std::size_t MAX_HITS = 8;
-				const auto hits = ModelPathLookup::FindPathsOnStack(*stack, MAX_HITS);
-				if (hits.empty())
-					return;
-
-				a_log.critical(""sv);
-				a_log.critical("MODEL PATHS FOR RESOURCE IDS ON THIS THREAD'S STACK (innermost first):"sv);
-				for (const auto& hit : hits) {
-					a_log.critical("\t[RSP+0x{:X}] {}"sv, hit.stackOffset, hit.path);
-				}
-			} catch (...) {
-				// Diagnostic-only section; never let a failure here affect the rest of the log.
 			}
 		}
 
@@ -1525,6 +1523,46 @@ next_label:;
 
 #undef SETTING_CASE
 
+		// Crash analysis walks arbitrary, possibly corrupted game memory and can hang
+		// (locks, bad linked lists, slow symbol loads). A hung handler freezes the game
+		// with an incomplete log, so a watchdog records where it stuck and ends the process.
+		constexpr DWORD HANDLER_TIMEOUT_MS = 120'000;
+		char handlerSection[64]{ "startup" };  // best-effort; read only by the watchdog
+		std::atomic_bool handlerDone{ false };
+		wchar_t handlerLogPath[MAX_PATH * 2]{};
+		HANDLE handlerStartEvent{ nullptr };
+
+		DWORD WINAPI HandlerWatchdog(LPVOID) noexcept
+		{
+			// Created at install time: starting a thread inside a crashing process is unreliable.
+			::WaitForSingleObject(handlerStartEvent, INFINITE);
+			for (DWORD waited = 0; waited < HANDLER_TIMEOUT_MS || ::IsDebuggerPresent(); waited += 250) {
+				if (handlerDone.load()) {
+					return 0;
+				}
+				::Sleep(250);
+			}
+			if (handlerDone.load()) {
+				return 0;
+			}
+			// Raw Win32 append: the spdlog sink is not safe to touch while the stuck thread owns it.
+			char msg[256]{};
+			const auto len = std::snprintf(msg, sizeof(msg),
+				"\n===== CRASH LOGGER TIMEOUT =====\nCrash analysis did not finish within %lu s; stuck in section: %s\nThe crash log above is incomplete.\n",
+				HANDLER_TIMEOUT_MS / 1000, handlerSection);
+			if (handlerLogPath[0] && len > 0) {
+				const auto file = ::CreateFileW(handlerLogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+					nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+				if (file != INVALID_HANDLE_VALUE) {
+					DWORD written = 0;
+					::WriteFile(file, msg, static_cast<DWORD>(len), &written, nullptr);
+					::CloseHandle(file);
+				}
+			}
+			::TerminateProcess(::GetCurrentProcess(), EXIT_FAILURE);
+			return 0;
+		}
+
 		std::int32_t __stdcall UnhandledExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
 			// Stack overflow path: when the original crash is a stack overflow, the
@@ -1538,6 +1576,9 @@ next_label:;
 				::_resetstkoflw();
 			}
 
+			Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::HandlerEntered,
+				a_exception && a_exception->ExceptionRecord ? a_exception->ExceptionRecord->ExceptionCode : 0,
+				a_exception && a_exception->ExceptionRecord ? reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress) : 0);
 			const auto faultTicks = Crash::ModelDemandTracker::now_ticks();
 
 			// Install the SEH-to-C++ exception translator
@@ -1554,14 +1595,33 @@ next_label:;
 					if (IsDebuggerPresent())
 						DebugBreak();
 				}
+				if (handlerStartEvent) {
+					::SetEvent(handlerStartEvent);  // start the watchdog before any analysis can hang
+				}
+				// A fault inside the handler on the thread already running it would deadlock on
+				// the mutex below and freeze the game, so end the process (the log is flushed per section).
+				static std::atomic<DWORD> owner{ 0 };
+				if (owner.load() == ::GetCurrentThreadId()) {
+					::TerminateProcess(::GetCurrentProcess(), EXIT_FAILURE);
+				}
 				static std::mutex sync;
 				const std::lock_guard l{ sync };
+				owner.store(::GetCurrentThreadId());
 
-				const auto modules = Modules::get_loaded_modules();
-				const std::span cmodules{ modules.begin(), modules.end() };
+				// Create the log file before anything else so a failure later still leaves a file.
 				auto [logPtr, logPath] = get_timestamped_log("crash-"sv, "crash log"s);
 				log = logPtr;
 				crashLogPath = logPath;
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::LogOpened);
+				{
+					const auto wide = logPath.wstring();
+					if (wide.size() < std::size(handlerLogPath)) {
+						std::copy(wide.begin(), wide.end(), handlerLogPath);
+					}
+				}
+
+				const auto modules = Modules::get_loaded_modules();
+				const std::span cmodules{ modules.begin(), modules.end() };
 
 				// Clean up old logs
 				const auto& debug = Settings::GetSingleton()->GetDebug();
@@ -1590,9 +1650,8 @@ next_label:;
 					if (a_separate)
 						log->critical(""sv);
 					try {
-						// Add timeout protection to prevent hanging on bad operations
+						std::snprintf(handlerSection, sizeof(handlerSection), "%s", a_name.c_str());
 						auto start = std::chrono::steady_clock::now();
-						constexpr auto timeout = std::chrono::seconds(30);
 
 						a_functor();
 
@@ -1669,8 +1728,7 @@ next_label:;
 
 				// Print relevant objects section (after exception, before other sections)
 				print([&]() { print_relevant_objects_section(*log, relevantObjects); }, "print_relevant_objects");
-				print([&]() { print_recent_model_demands_section(*log, faultTicks); }, "print_recent_model_demands", false);
-				print([&]() { print_model_paths_section(*log, *a_exception->ContextRecord); }, "print_model_paths", false);
+				print([&]() { print_model_loading_section(*log, faultTicks, *a_exception->ContextRecord); }, "print_model_loading", false);
 
 				print([&]() { print_process_info(*log); }, "print_process_info");
 				print([&]() { print_thread_context(*log, callstack ? &(*callstack) : nullptr, cmodules); }, "print_thread_context");
@@ -1769,6 +1827,8 @@ next_label:;
 
 				// Ensure all log data is written to disk before we try to open the file
 				log->flush();
+				handlerDone.store(true);
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::HandlerDone);
 
 			} catch (const SEHException& se) {
 				// Log the SEH exception to the existing log (or create new if needed)
@@ -1829,6 +1889,8 @@ next_label:;
 				}
 			}
 
+			handlerDone.store(true);
+
 			// Upload crash log to pastebin if enabled
 			bool uploadedToWeb = false;
 			if (Settings::GetSingleton()->GetDebug().autoUploadCrashLog) {
@@ -1856,9 +1918,22 @@ next_label:;
 
 		std::int32_t _stdcall VectoredExceptions(::EXCEPTION_POINTERS* a_exception) noexcept
 		{
+			const auto code = a_exception && a_exception->ExceptionRecord ? a_exception->ExceptionRecord->ExceptionCode : 0u;
+
+			// Record fatal-class exceptions with raw writes so a later session can tell whether
+			// the process died before our handler ran.
+			if (Crash::Breadcrumb::IsFatalClass(code)) {
+				Crash::Breadcrumb::Mark(Crash::Breadcrumb::Kind::FatalException, code,
+					reinterpret_cast<std::uintptr_t>(a_exception->ExceptionRecord->ExceptionAddress));
+			}
+
 			// Keep our top-level filter installed (defends against other plugins / ENB
-			// overwriting SetUnhandledExceptionFilter).
-			::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
+			// overwriting SetUnhandledExceptionFilter). Skip the benign, very frequent
+			// debugger name/print exceptions: re-arming on each of them
+			// adds needless contention in a process that raises thousands per second.
+			if (code != 0x406D1388 && code != 0x40010006 && code != 0x4001000A) {
+				::SetUnhandledExceptionFilter(reinterpret_cast<::LPTOP_LEVEL_EXCEPTION_FILTER>(&UnhandledExceptions));
+			}
 
 			// __fastfail and /GS-cookie failures bypass SetUnhandledExceptionFilter; VEH catches them.
 			// Guard prevents re-entry if logging itself trips a fast-fail.
@@ -1866,6 +1941,7 @@ next_label:;
 				switch (a_exception->ExceptionRecord->ExceptionCode) {
 				case 0xC0000409:  // STATUS_STACK_BUFFER_OVERRUN (__fastfail, /GS, abort)
 				case 0xC0000602:  // STATUS_FAIL_FAST_EXCEPTION
+				case 0xC0000374:  // STATUS_HEAP_CORRUPTION (RtlReportFatalFailure, same fastfail path)
 					{
 						static std::atomic_bool handling{ false };
 						bool expected = false;
@@ -1898,6 +1974,17 @@ next_label:;
 		{
 			ULONG stackGuarantee = 64 * 1024;
 			::SetThreadStackGuarantee(&stackGuarantee);
+		}
+
+		// Report what the previous session left behind, then start recording this one.
+		Crash::Breadcrumb::Install(crashPath);
+
+		// The watchdog waits for the handler to start; see HandlerWatchdog.
+		handlerStartEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if (handlerStartEvent) {
+			if (const auto thread = ::CreateThread(nullptr, 0, HandlerWatchdog, nullptr, 0, nullptr)) {
+				::CloseHandle(thread);
+			}
 		}
 
 		// Install crash handlers

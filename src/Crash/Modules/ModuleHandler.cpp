@@ -343,8 +343,8 @@ namespace Crash::Modules
 
 		decltype(get_loaded_modules()) results;
 		results.resize(modules.size());
+		// Serial on purpose: this runs inside the crash handler, where spinning up a thread pool is unsafe.
 		std::for_each(
-			std::execution::par_unseq,
 			modules.begin(),
 			modules.end(),
 			[&](auto&& a_elem) {

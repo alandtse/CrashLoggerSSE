@@ -81,9 +81,23 @@ namespace Crash
 
 		std::stringstream buf;
 		buf << a_prefix << std::put_time(&localTime, "%Y-%m-%d-%H-%M-%S") << ".log"sv;
-		*path /= buf.str();
+		const auto fileName = buf.str();
+		*path /= fileName;
 
-		auto sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(path->string(), true);
+		std::shared_ptr<spdlog::sinks::basic_file_sink_st> sink;
+		try {
+			// The directory can vanish after startup (cleanup tools, cloud sync, removed drive).
+			std::error_code ec;
+			std::filesystem::create_directories(path->parent_path(), ec);
+			sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(path->string(), true);
+		} catch (...) {
+			// Better a log in the temp folder than no log at all.
+			std::error_code ec;
+			auto fallback = std::filesystem::temp_directory_path(ec) / "CrashLogger";
+			std::filesystem::create_directories(fallback, ec);
+			path = fallback / fileName;
+			sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(path->string(), true);
+		}
 		auto log = std::make_shared<spdlog::logger>(std::string(a_logger_name), std::move(sink));
 		log->set_pattern("%v"s);
 		log->set_level(spdlog::level::trace);
