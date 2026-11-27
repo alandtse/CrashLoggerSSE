@@ -365,6 +365,7 @@ add_custom_target(build-time-make-directory ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory "${ZIP_DIR}"
         "${ZIP_DIR}/SKSE/Plugins/"
 )
+add_dependencies(${PROJECT_NAME} build-time-make-directory)
 
 message("Copying mod into ${ZIP_DIR}.")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
