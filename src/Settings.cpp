@@ -57,6 +57,12 @@ void Settings::Debug::Load(CSimpleIniA& a_ini)
 
 	get_value(a_ini, enableThreadDumpHotkey, section, "Enable Thread Dump Hotkey", ";Enable thread dump hotkey for diagnosing hangs/deadlocks. Default: true\n;When enabled, press Ctrl+Shift+F12 while game is frozen to generate dump.\n;Set to 0 to disable (no monitoring thread will be created).");
 
+	get_value(a_ini, enableFreezeDetection, section, "Enable Freeze Detection", ";Automatically write a thread dump (freezedump-*.log) when the main thread stops responding. Default: true\n;Only fires while the game window is in the foreground. Loading screens use the busy threshold.");
+	get_value(a_ini, freezeThresholdSeconds, section, "Freeze Threshold Seconds", ";Seconds the main thread must stay unresponsive with the process idle (a deadlock) before dumping. Detection takes at least 8 seconds. Default: 45");
+	get_value(a_ini, freezeBusyThresholdSeconds, section, "Freeze Busy Threshold Seconds", ";Seconds to wait instead when the process is still using CPU (shader compiles, loading). Never lower than the threshold above. Default: 300");
+
+	get_value(a_ini, freezePromptSeconds, section, "Freeze Prompt Seconds", ";What to do when a freeze is detected. 0 = write the dump automatically (default). -1 = show a window and wait for your answer.\n;A positive value shows the window and writes the dump automatically after that many seconds if unanswered. Values below -1 are treated as 0.");
+
 	// Parse hotkey combination (comma-separated list of VK codes)
 	std::string hotkeyStr{ "17, 16, 123" };
 	get_value(a_ini, hotkeyStr, section, "Thread Dump Hotkey", ";Hotkey combination (VK codes): Ctrl=17, Shift=16, F12=123. Default: 17, 16, 123\n;VK code reference: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes");

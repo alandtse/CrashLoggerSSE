@@ -164,18 +164,26 @@ namespace Crash
 		a_log.flush();  // keep partial output on disk if a later thread stalls
 	}
 
-	void WriteAllThreadsDump()
+	bool WriteAllThreadsDump(std::string_view a_trigger, std::string_view a_context, bool a_interactive)
 	{
+		// Two writers capturing at once could suspend each other and never resume.
+		static std::mutex writerMutex;
+		const std::lock_guard lock{ writerMutex };
+
 		try {
-			// Create log file
-			auto [log, logPath] = get_timestamped_log("threaddump-"sv, "thread dump"s);
+			const auto prefix = a_interactive ? "threaddump-"sv : "freezedump-"sv;
+			auto [log, logPath] = get_timestamped_log(prefix, "thread dump"s);
 
 			// Clean up old thread dumps
 			const auto& debug = Settings::GetSingleton()->GetDebug();
-			clean_old_files(logPath.parent_path(), "threaddump-"sv, ".log", debug.maxCrashLogs, ".dmp");
-			clean_old_files(logPath.parent_path(), "threaddump-"sv, ".dmp", debug.maxMinidumps);
+			clean_old_files(logPath.parent_path(), prefix, ".log", debug.maxCrashLogs, ".dmp");
+			clean_old_files(logPath.parent_path(), prefix, ".dmp", debug.maxMinidumps);
 
-			log_common_header_info(*log, "THREAD DUMP (Manual Trigger)", "TIME:"sv);
+			log_common_header_info(*log, std::format("THREAD DUMP ({})", a_trigger), "TIME:"sv);
+			if (!a_context.empty()) {
+				log->critical("{}"sv, a_context);
+				log->critical(""sv);
+			}
 
 			// Get loaded modules
 			const auto modules = Modules::get_loaded_modules();
@@ -191,7 +199,7 @@ namespace Crash
 			if (snapshot == INVALID_HANDLE_VALUE) {
 				log->critical("Failed to create thread snapshot"sv);
 				log->flush();
-				return;
+				return false;
 			}
 
 			THREADENTRY32 te{};
@@ -282,18 +290,22 @@ namespace Crash
 				dumpPath.replace_extension(".dmp");
 				message.append(dumpPath.string());
 			}
-			RE::DebugMessageBox(message.c_str());
-			RE::ConsoleLog::GetSingleton()->Print(message.c_str());
 			logger::info("{}", message);
 
-			// Auto-open thread dump log if enabled
-			auto_open_log(logPath);
-
+			// Touching UI and spawning viewers is only safe for a user-requested dump; an automatic
+			// freeze dump runs while the main thread may be stuck.
+			if (a_interactive) {
+				RE::DebugMessageBox(message.c_str());
+				RE::ConsoleLog::GetSingleton()->Print(message.c_str());
+				auto_open_log(logPath);
+			}
+			return true;
 		} catch (const std::exception& e) {
 			logger::error("Failed to write thread dump: {}"sv, e.what());
 		} catch (...) {
 			logger::error("Failed to write thread dump: unknown error"sv);
 		}
+		return false;
 	}
 
 	void HotkeyMonitorThreadFunction()
